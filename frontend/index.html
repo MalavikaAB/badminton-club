@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Club Night Board</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <nav class="tabs" aria-label="Club night sections">
+      <button class="tab active" data-view="board-view">Board</button>
+      <button class="tab" data-view="checkin-view">Check in</button>
+      <button class="tab" data-view="players-view">Players</button>
+    </nav>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">MU BADMINTON CLUB</p>
+        <h1 id="board-title">Club night board</h1>
+        <p class="muted">Live allocation board <span class="live-dot"></span></p>
+      </div>
+      <div class="round-status">
+        <label class="board-session-label">BOARD <select id="board-session"></select></label>
+        <span class="label">ROUND</span>
+        <strong id="round-number">08</strong>
+        <span class="muted">20 min games</span>
+      </div>
+    </header>
+
+    <section id="board-view" class="view active-view">
+    <section class="summary" aria-label="Club night summary">
+      <div><strong id="playing-count">24</strong><span>playing</span></div>
+      <div><strong id="waiting-count">22</strong><span>waiting</span></div>
+      <div><strong>6</strong><span>courts</span></div>
+      <div><strong id="next-break">7 min</strong><span>longest wait</span></div>
+    </section>
+
+    <section class="content-grid">
+      <section>
+        <div class="section-heading">
+          <div><p class="eyebrow">CURRENT ALLOCATION</p><h2>Head to your court</h2></div>
+          <button class="secondary-button" id="announce-button">Announce mode</button>
+        </div>
+        <div class="courts" id="courts"></div>
+      </section>
+
+      <aside class="waiting-panel">
+        <div class="section-heading"><div><p class="eyebrow">QUEUE</p><h2>Waiting</h2></div><span class="queue-count" id="queue-count">22</span></div>
+        <ol id="waiting-list"></ol>
+        <button class="primary-button" id="next-round-button">Generate next round <span>→</span></button>
+        <p class="fine-print">Assignments are ordered by games played, wait time, and format availability.</p>
+      </aside>
+    </section>
+    </section>
+
+    <section id="checkin-view" class="view">
+      <div class="page-heading"><p class="eyebrow">CLUB NIGHT ROSTER</p><h2>Check in players</h2><p class="muted">Choose the scheduled session and venue, then mark who is present.</p></div>
+      <p id="division-schedule" class="schedule-note"></p>
+      <div class="form-row">
+        <label>Session <select id="club-session"></select></label>
+      </div>
+      <div class="checkin-toolbar"><strong id="checkin-count">0 checked in</strong><button class="secondary-button" id="clear-checkins">Clear this session</button></div>
+      <div id="checkin-list" class="player-list"></div>
+    </section>
+
+    <section id="players-view" class="view">
+      <div class="page-heading"><p class="eyebrow">PLAYER DIRECTORY</p><h2>Manage players</h2><p class="muted">Add a player once, then check them in for any division night.</p></div>
+      <form id="player-form" class="player-form">
+        <label>Name <input id="player-name" required placeholder="Player name"></label>
+        <label>Gender <select id="player-gender"><option value="MALE">Male</option><option value="FEMALE">Female</option></select></label>
+        <label>Division <select id="player-division"></select></label>
+        <button class="primary-button" type="submit">Add player <span>+</span></button>
+      </form>
+      <div id="players-list" class="directory-list"></div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

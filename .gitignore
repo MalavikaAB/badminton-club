@@ -1,0 +1,11 @@
+.idea/
+.vscode/
+*.iml
+backend/target/
+backend/.env
+backend/demo-data.sql
+backend/src/main/resources/demo-data.sql
+*.dump
+*.sql.bak
+frontend/node_modules/
+frontend/.next/
