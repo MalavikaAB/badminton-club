@@ -1,4 +1,6 @@
-const apiBaseUrl = 'http://localhost:8080/api/club-night';
+// Local dev: http://localhost:8080/api/club-night
+// Production (Render): https://<your-render-service-name>.onrender.com/api/club-night
+const apiBaseUrl = 'https://club-night-backend.onrender.com/api/club-night';
 const divisions = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', 'Open'];
 let clubSessions = [];
 let roster = [];
