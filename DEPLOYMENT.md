@@ -31,32 +31,44 @@ This app has **two parts** — they are deployed separately:
 
 ## 2. Deploy the backend to Render
 
-1. Push this repo to GitHub (make sure `origin/main` is up to date).
-2. In [render.com](https://render.com): **New → Web Service** → connect the GitHub repo.
-3. Set these settings:
+> **Why Docker?** Java is not one of Render's "native runtimes" (only
+> JS/TS, Python, Ruby, Go, Rust, Elixir are), and its auto-detection may
+> default to Node and not install Maven. A Docker deploy guarantees
+> Java 21 + Maven. The repo includes `backend/Dockerfile` and a
+> `render.yaml` blueprint for this.
 
-   | Setting | Value |
-   |---|---|
-   | **Name** | `club-night-backend` (gives a predictable URL) |
-   | **Root Directory** | `backend` |
-   | **Environment** | `Mono` (Java) |
-   | **Build Command** | `mvn clean package -DskipTests` |
-   | **Start Command** | `java -jar target/club-night-backend-0.0.1-SNAPSHOT.jar` |
+### Option A — Blueprint (recommended)
 
-4. Add these **Environment Variables**:
+The repo has a `render.yaml` that defines the web service for you:
 
-   ```
-   SUPABASE_DB_HOST=aws-1-eu-west-1.pooler.supabase.com
-   SUPABASE_DB_PORT=5432
-   SUPABASE_DB_NAME=postgres
-   SUPABASE_DB_USERNAME=postgres.rflztcthdtorfryeuzpt
-   SUPABASE_DB_PASSWORD=your-password
-   ```
+1. In [render.com](https://render.com): **New + → Blueprint** → connect the GitHub repo.
+2. Render finds `render.yaml`, shows the **`club-night-backend`** service.
+3. Tick **Apply** — Render will **prompt you for the 5 `SUPABASE_DB_*` env vars**
+   (they're declared `sync: false`, so their values live only in Render, never in git).
+4. Deploy. First build downloads Maven dependencies, so it takes a few minutes.
 
-5. Click **Deploy** (the first build takes a few minutes).
-6. Verify it's live:
-   - `https://club-night-backend.onrender.com/api/club-night/health` → `{"status":"ready"}`
-   - `https://club-night-backend.onrender.com/api/club-night/database-health` → `{"status":"connected"}`
+### Option B — Manual web service
+
+1. **New → Web Service** → connect the repo.
+2. **Root Directory**: `backend`
+3. **Runtime / Environment**: choose **Docker** (Dockerfile is in `backend/`).
+4. Add the 5 environment variables (below).
+5. Deploy.
+
+### Environment variables (either option)
+
+```
+SUPABASE_DB_HOST=aws-1-eu-west-1.pooler.supabase.com
+SUPABASE_DB_PORT=5432
+SUPABASE_DB_NAME=postgres
+SUPABASE_DB_USERNAME=postgres.rflztcthdtorfryeuzpt
+SUPABASE_DB_PASSWORD=your-password
+```
+
+### Verify
+
+- `https://club-night-backend.onrender.com/api/club-night/health` → `{"status":"ready"}`
+- `https://club-night-backend.onrender.com/api/club-night/database-health` → `{"status":"connected"}`
 
 **If you picked a different Render service name**, use *your* URL everywhere below.
 

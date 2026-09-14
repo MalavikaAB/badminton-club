@@ -1,0 +1,6 @@
+target/
+.env
+demo-data.sql
+src/main/resources/demo-data.sql
+*.dump
+*.sql.bak
