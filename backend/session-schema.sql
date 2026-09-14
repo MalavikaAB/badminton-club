@@ -1,4 +1,5 @@
 -- Persistent weekly session definitions. Each venue/division gets its own board.
+alter table if exists players add column if not exists rounds_waiting integer not null default 0;
 create table if not exists club_sessions (
     id text primary key,
     weekday text not null check (weekday in ('MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'SUNDAY')),

@@ -1,4 +1,6 @@
 create extension if not exists pgcrypto;
+alter table if exists players add column if not exists rounds_waiting integer not null default 0;
+alter table if exists players add column if not exists active boolean not null default true;
 
 create table if not exists club_sessions (
     id text primary key,
@@ -83,7 +85,17 @@ create table if not exists venue_check_ins (
     session_id text not null references venue_sessions(id) on delete cascade,
     player_id uuid not null references players(id) on delete cascade,
     checked_in_at timestamptz not null default now(),
+    sit_out_rounds integer not null default 0,
     primary key (session_id, player_id)
+);
+alter table if exists venue_check_ins add column if not exists sit_out_rounds integer not null default 0;
+
+create table if not exists venue_nights (
+    id uuid primary key default gen_random_uuid(),
+    session_id text not null references venue_sessions(id) on delete cascade,
+    status text not null default 'OPEN' check (status in ('OPEN', 'COMPLETED')),
+    started_at timestamptz not null default now(),
+    ended_at timestamptz
 );
 
 create table if not exists venue_rounds (
@@ -94,30 +106,57 @@ create table if not exists venue_rounds (
     unique (session_id, round_number)
 );
 
+alter table if exists venue_rounds add column if not exists night_id uuid references venue_nights(id) on delete cascade;
+alter table if exists venue_rounds drop constraint if exists venue_rounds_session_id_round_number_key;
+create unique index if not exists venue_rounds_night_id_round_number_key on venue_rounds (night_id, round_number);
+
+delete from venue_round_players
+    where round_id in (select id from venue_rounds where night_id is null);
+delete from venue_rounds where night_id is null;
+update players set games_played = 0, rounds_waiting = 0
+    where not exists (
+        select 1 from venue_rounds r
+        join venue_nights n on n.id = r.night_id
+        where n.status = 'OPEN'
+    );
+
 create table if not exists venue_round_players (
     round_id uuid not null references venue_rounds(id) on delete cascade,
     court_number integer,
     format text,
+    team text,
     player_id uuid not null references players(id) on delete restrict,
     primary key (round_id, player_id)
 );
+alter table if exists venue_round_players add column if not exists team text;
 
+create table if not exists venue_pair_counts (
+    night_id uuid not null references venue_nights(id) on delete cascade,
+    player_id uuid not null references players(id) on delete cascade,
+    other_id uuid not null references players(id) on delete cascade,
+    pair_count integer not null default 0,
+    opp_count integer not null default 0,
+    primary key (night_id, player_id, other_id)
+);
+
+-- NOTE: Existing databases with real venue names should run
+-- venue-anonymisation-migration.sql first. This file is for fresh installs.
 insert into venue_sessions (id, weekday, location) values
-    ('monday-st-tiernan', 'MONDAY', 'St. Tiernan''s Community School'),
-    ('tuesday-terenure', 'TUESDAY', 'Terenure Badminton Centre'),
-    ('wednesday-st-tiernan', 'WEDNESDAY', 'St. Tiernan''s Community School'),
-    ('thursday-st-tiernan', 'THURSDAY', 'St. Tiernan''s Community School'),
-    ('thursday-our-ladys', 'THURSDAY', 'Our Lady''s School'),
-    ('sunday-terenure', 'SUNDAY', 'Terenure Badminton Centre'),
-    ('sunday-st-tiernan', 'SUNDAY', 'St. Tiernan''s Community School')
+    ('monday-a', 'MONDAY', 'location a'),
+    ('tuesday-b', 'TUESDAY', 'location b'),
+    ('wednesday-a', 'WEDNESDAY', 'location a'),
+    ('thursday-a', 'THURSDAY', 'location a'),
+    ('thursday-c', 'THURSDAY', 'location c'),
+    ('sunday-b', 'SUNDAY', 'location b'),
+    ('sunday-a', 'SUNDAY', 'location a')
 on conflict (id) do update set location = excluded.location, active = true;
 
 insert into venue_session_divisions (session_id, division) values
-    ('monday-st-tiernan', '4'), ('monday-st-tiernan', '5'), ('monday-st-tiernan', '6'),
-    ('tuesday-terenure', '1'), ('tuesday-terenure', '2'), ('tuesday-terenure', '3'),
-    ('wednesday-st-tiernan', '5'), ('wednesday-st-tiernan', '6'), ('wednesday-st-tiernan', '7'),
-    ('thursday-st-tiernan', '8'),
-    ('thursday-our-ladys', '9'), ('thursday-our-ladys', '10'),
-    ('sunday-terenure', '7'), ('sunday-terenure', '8'), ('sunday-terenure', '9'),
-    ('sunday-st-tiernan', '1'), ('sunday-st-tiernan', '2'), ('sunday-st-tiernan', '3'), ('sunday-st-tiernan', '4')
+    ('monday-a', '4'), ('monday-a', '5'), ('monday-a', '6'),
+    ('tuesday-b', '1'), ('tuesday-b', '2'), ('tuesday-b', '3'),
+    ('wednesday-a', '5'), ('wednesday-a', '6'), ('wednesday-a', '7'),
+    ('thursday-a', '8'),
+    ('thursday-c', '9'), ('thursday-c', '10'),
+    ('sunday-b', '7'), ('sunday-b', '8'), ('sunday-b', '9'),
+    ('sunday-a', '1'), ('sunday-a', '2'), ('sunday-a', '3'), ('sunday-a', '4')
 on conflict do nothing;

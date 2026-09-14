@@ -6,7 +6,7 @@
   <title>Club Night Board</title>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body data-tab="board-view">
   <main class="shell">
     <nav class="tabs" aria-label="Club night sections">
       <button class="tab active" data-view="board-view">Board</button>
@@ -22,33 +22,36 @@
       <div class="round-status">
         <label class="board-session-label">BOARD <select id="board-session"></select></label>
         <span class="label">ROUND</span>
-        <strong id="round-number">08</strong>
+        <strong id="round-number">00</strong>
         <span class="muted">20 min games</span>
       </div>
     </header>
 
     <section id="board-view" class="view active-view">
     <section class="summary" aria-label="Club night summary">
-      <div><strong id="playing-count">24</strong><span>playing</span></div>
-      <div><strong id="waiting-count">22</strong><span>waiting</span></div>
-      <div><strong>6</strong><span>courts</span></div>
-      <div><strong id="next-break">7 min</strong><span>longest wait</span></div>
+      <div><strong id="playing-count">0</strong><span>playing</span></div>
+      <div><strong id="waiting-count">0</strong><span>waiting</span></div>
+      <div><strong id="courts-count">0</strong><span>courts</span></div>
+      <div><strong id="next-break">—</strong><span>longest wait</span></div>
     </section>
 
     <section class="content-grid">
       <section>
         <div class="section-heading">
           <div><p class="eyebrow">CURRENT ALLOCATION</p><h2>Head to your court</h2></div>
-          <button class="secondary-button" id="announce-button">Announce mode</button>
+          <div class="heading-actions">
+            <button class="secondary-button" id="announce-button">Announce mode</button>
+            <button class="secondary-button danger-button" id="end-night-button">End club night</button>
+          </div>
         </div>
         <div class="courts" id="courts"></div>
       </section>
 
       <aside class="waiting-panel">
-        <div class="section-heading"><div><p class="eyebrow">QUEUE</p><h2>Waiting</h2></div><span class="queue-count" id="queue-count">22</span></div>
+        <div class="section-heading"><div><p class="eyebrow">QUEUE</p><h2>Waiting</h2></div><span class="queue-count" id="queue-count">0</span></div>
         <ol id="waiting-list"></ol>
         <button class="primary-button" id="next-round-button">Generate next round <span>→</span></button>
-        <p class="fine-print">Assignments are ordered by games played, wait time, and format availability.</p>
+        <p class="fine-print">Assignments favour players who have sat out, then fewest games tonight. Sit someone out for the next round, or swap a court player with someone waiting.</p>
       </aside>
     </section>
     </section>
@@ -59,7 +62,7 @@
       <div class="form-row">
         <label>Session <select id="club-session"></select></label>
       </div>
-      <div class="checkin-toolbar"><strong id="checkin-count">0 checked in</strong><button class="secondary-button" id="clear-checkins">Clear this session</button></div>
+      <div class="checkin-toolbar"><strong id="checkin-count">0 checked in</strong><button class="secondary-button danger-button" id="clear-checkins">End night and clear</button></div>
       <div id="checkin-list" class="player-list"></div>
     </section>
 
@@ -74,6 +77,15 @@
       <div id="players-list" class="directory-list"></div>
     </section>
   </main>
+  <div id="swap-modal" class="modal hidden" role="dialog" aria-labelledby="swap-title">
+    <div class="modal-card">
+      <p class="eyebrow">SWAP</p>
+      <h2 id="swap-title">Replace a player</h2>
+      <p class="muted" id="swap-copy">Pick someone waiting to come on court.</p>
+      <ol id="swap-options"></ol>
+      <button class="secondary-button" id="swap-cancel">Cancel</button>
+    </div>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>

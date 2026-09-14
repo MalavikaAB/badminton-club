@@ -4,11 +4,14 @@ let clubSessions = [];
 let roster = [];
 let rounds = [];
 let waiting = [];
+let checkedInCount = 0;
+let swapOutPlayerId = null;
 
 const formatLabels = {
   MENS_DOUBLES: "Men's doubles",
   WOMENS_DOUBLES: "Women's doubles",
-  MIXED_DOUBLES: 'Mixed doubles'
+  MIXED_DOUBLES: 'Mixed doubles',
+  OPEN_DOUBLES: 'Open doubles'
 };
 
 function colourForFormat(format) {
@@ -28,25 +31,78 @@ function fillDivisionSelects() {
 
 function renderScheduleNote() {
   const session = clubSessions.find(item => item.id === selectedSession());
-  document.querySelector('#division-schedule').textContent = `${session.day} · Divisions ${session.divisions.join(', ')} · ${session.location} · Check-ins are cleared when the session is finished.`;
+  document.querySelector('#division-schedule').textContent = `${session.day} · Divisions ${session.divisions.join(', ')} · ${session.location} · Ending the night clears rounds, waiting, and tonight's game counts.`;
   document.querySelector('#board-title').textContent = `${session.day} club night · ${session.location}`;
+}
+
+function mapPlayers(players) {
+  return players.map(player => ({
+    id: player.id,
+    name: player.name,
+    gender: player.gender,
+    gamesPlayed: player.gamesPlayed,
+    roundsWaiting: player.roundsWaiting,
+    sittingOut: Boolean(player.sittingOut),
+    division: roster.find(rosterPlayer => rosterPlayer.id === player.id)?.division || '?'
+  }));
+}
+
+function applyAllocation(allocation) {
+  const roundNumber = allocation?.roundNumber || 0;
+  rounds = (allocation?.courts || []).map(({ courtNumber, format, players, teamA, teamB }) => ({
+    court: courtNumber,
+    format: formatLabels[format] || format,
+    formatKey: format,
+    color: colourForFormat(format),
+    players: mapPlayers(players),
+    teamA: (teamA || []).map(player => player.id),
+    teamB: (teamB || []).map(player => player.id)
+  }));
+  waiting = mapPlayers(allocation?.waiting || []);
+  document.querySelector('#round-number').textContent = String(roundNumber).padStart(2, '0');
+  renderCourts();
+  renderWaiting();
 }
 
 async function renderCheckins() {
   const session = selectedSession();
   const response = await fetch(`${apiBaseUrl}/sessions/${session}/check-ins`);
   if (!response.ok) throw new Error(`Could not load check-ins: ${response.status}`);
-  const checkedIn = new Set(await response.json());
+  const checkIns = await response.json();
+  const checkedIn = new Set(checkIns.map(item => item.playerId));
+  const sittingOut = new Set(checkIns.filter(item => item.sittingOut).map(item => item.playerId));
   const sessionDefinition = clubSessions.find(item => item.id === session);
   const players = roster.filter(player => sessionDefinition.divisions.includes(player.division));
   document.querySelector('#checkin-list').innerHTML = players.length ? players.map(player => `
-    <label class="checkin-player"><input type="checkbox" data-checkin-id="${player.id}" ${checkedIn.has(player.id) ? 'checked' : ''}><span>${player.name}</span><small>Division ${player.division} · ${player.gender === 'MALE' ? 'Male' : 'Female'} · ${player.gamesPlayed} games played</small></label>`).join('') : '<p class="empty-state">No players in these divisions yet. Add one in the Players tab.</p>';
+    <label class="checkin-player"><input type="checkbox" data-checkin-id="${player.id}" ${checkedIn.has(player.id) ? 'checked' : ''}><span>${player.name}</span><small>Division ${player.division} · ${player.gender === 'MALE' ? 'Male' : 'Female'} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'} tonight</small>${checkedIn.has(player.id) ? `<button type="button" class="inline-action" data-sit-out-id="${player.id}" data-sitting-out="${sittingOut.has(player.id)}">${sittingOut.has(player.id) ? 'Cancel sit-out' : 'Sit out next round'}</button>` : ''}</label>`).join('') : '<p class="empty-state">No players in these divisions yet. Add one in the Players tab.</p>';
+  checkedInCount = checkedIn.size;
   document.querySelector('#checkin-count').textContent = `${checkedIn.size} checked in`;
+  updateGenerateButton();
   document.querySelectorAll('[data-checkin-id]').forEach(input => input.addEventListener('change', async event => {
     const method = event.target.checked ? 'POST' : 'DELETE';
     await fetch(`${apiBaseUrl}/sessions/${session}/check-ins/${event.target.dataset.checkinId}`, { method });
     renderCheckins();
   }));
+  document.querySelectorAll('[data-sit-out-id]').forEach(button => button.addEventListener('click', async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    await setSitOut(button.dataset.sitOutId, button.dataset.sittingOut === 'true');
+  }));
+}
+
+async function setSitOut(playerId, alreadySittingOut) {
+  const method = alreadySittingOut ? 'DELETE' : 'POST';
+  const response = await fetch(`${apiBaseUrl}/sessions/${selectedSession()}/check-ins/${playerId}/sit-out`, { method });
+  if (!response.ok) return;
+  await initializeLatestRound();
+  await renderCheckins();
+}
+
+function updateGenerateButton() {
+  const button = document.querySelector('#next-round-button');
+  if (!button || button.dataset.busy === 'true') return;
+  button.disabled = checkedInCount < 4;
+  button.title = checkedInCount < 4 ? 'Check in at least four players first' : '';
 }
 
 function renderPlayers() {
@@ -61,31 +117,87 @@ function renderPlayers() {
   }));
 }
 
+function setActiveView(viewId) {
+  document.body.dataset.tab = viewId;
+  document.querySelectorAll('.tab').forEach(item => item.classList.toggle('active', item.dataset.view === viewId));
+  document.querySelectorAll('.view').forEach(view => view.classList.toggle('active-view', view.id === viewId));
+}
+
 function renderViews() {
   document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(item => item.classList.toggle('active', item === tab));
-    document.querySelectorAll('.view').forEach(view => view.classList.toggle('active-view', view.id === tab.dataset.view));
+    setActiveView(tab.dataset.view);
     if (tab.dataset.view === 'checkin-view') renderCheckins();
     if (tab.dataset.view === 'players-view') renderPlayers();
   }));
 }
 
 function renderCourts() {
-  document.querySelector('#courts').innerHTML = rounds.map(({ court, format, color, players }) => `
+  document.querySelector('#courts').innerHTML = rounds.map(({ court, format, color, players, teamA, teamB }) => `
     <article class="court" style="--court-color:${color}">
       <div class="court-number"><strong>COURT ${court}</strong><span>4 / 4</span></div>
-         <ul>${players.map(player => `<li><span>${player.name}</span><small>Division ${player.division}</small></li>`).join('')}</ul>
+         <ul>${players.map(player => `<li class="${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''}"><span>${player.name}</span><small>Division ${player.division} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-out="${player.id}">Swap</button></li>`).join('')}</ul>
       <p class="format">${format}</p>
     </article>`).join('');
   document.querySelector('#playing-count').textContent = String(rounds.length * 4);
+  document.querySelector('#courts-count').textContent = String(rounds.length);
+  document.querySelectorAll('[data-swap-out]').forEach(button => button.addEventListener('click', () => openSwapModal(button.dataset.swapOut)));
 }
+
 function renderWaiting() {
-  document.querySelector('#waiting-list').innerHTML = waiting.map((player, index) => `<li><span>${player.name}</span><small>Division ${player.division}</small><span class="games-played">${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</span><span class="wait-time">${7 - Math.min(index, 6)} min</span></li>`).join('');
+  document.querySelector('#waiting-list').innerHTML = waiting.map(player => `<li><span>${player.name}</span><small>Division ${player.division}</small><span class="games-played">${player.sittingOut ? 'Sitting out next' : `${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}`}</span><span class="wait-time">${player.roundsWaiting} ${player.roundsWaiting === 1 ? 'round wait' : 'rounds wait'}</span><button type="button" class="inline-action light" data-wait-sit-out="${player.id}" data-sitting-out="${player.sittingOut}">${player.sittingOut ? 'Cancel' : 'Sit out next'}</button></li>`).join('');
   document.querySelector('#waiting-count').textContent = String(waiting.length);
   document.querySelector('#queue-count').textContent = String(waiting.length);
+  const longestWait = waiting.reduce((max, player) => Math.max(max, player.roundsWaiting || 0), 0);
+  document.querySelector('#next-break').textContent = waiting.length ? `${longestWait} ${longestWait === 1 ? 'round' : 'rounds'}` : '—';
+  document.querySelectorAll('[data-wait-sit-out]').forEach(button => button.addEventListener('click', () => setSitOut(button.dataset.waitSitOut, button.dataset.sittingOut === 'true')));
 }
+
+function openSwapModal(outPlayerId) {
+  const outgoing = rounds.flatMap(court => court.players).find(player => player.id === outPlayerId);
+  const replacements = waiting.filter(player => !player.sittingOut);
+  swapOutPlayerId = outPlayerId;
+  document.querySelector('#swap-copy').textContent = outgoing
+    ? `Take ${outgoing.name} off court and send in someone waiting.`
+    : 'Pick someone waiting to come on court.';
+  document.querySelector('#swap-options').innerHTML = replacements.length
+    ? replacements.map(player => `<li><button type="button" data-swap-in="${player.id}">${player.name}<small>Division ${player.division} · ${player.gamesPlayed} games tonight</small></button></li>`).join('')
+    : '<li class="empty-state">Nobody is waiting who can come on.</li>';
+  document.querySelector('#swap-modal').classList.remove('hidden');
+  document.querySelectorAll('[data-swap-in]').forEach(button => button.addEventListener('click', () => swapPlayers(button.dataset.swapIn)));
+}
+
+function closeSwapModal() {
+  swapOutPlayerId = null;
+  document.querySelector('#swap-modal').classList.add('hidden');
+}
+
+async function swapPlayers(inPlayerId) {
+  const response = await fetch(`${apiBaseUrl}/sessions/${selectedSession()}/swap`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outPlayerId: swapOutPlayerId, inPlayerId })
+  });
+  closeSwapModal();
+  if (!response.ok) {
+    const message = await response.text();
+    window.alert(message || 'Could not swap those players.');
+    return;
+  }
+  applyAllocation(await response.json());
+  await initializeRoster();
+}
+
+async function endClubNight() {
+  if (!window.confirm('End this club night? This clears rounds, waiting time, and tonight’s game counts.')) return;
+  const response = await fetch(`${apiBaseUrl}/sessions/${selectedSession()}/end-night`, { method: 'POST' });
+  if (!response.ok) return;
+  applyAllocation(await response.json());
+  await initializeRoster();
+}
+
 async function generateNextRound() {
   const button = document.querySelector('#next-round-button');
+  button.dataset.busy = 'true';
   button.disabled = true;
   button.textContent = 'Generating...';
 
@@ -98,29 +210,13 @@ async function generateNextRound() {
         roundNumber: round,
         sessionId: selectedSession(),
         players: [],
-        courtFormats: ['MENS_DOUBLES', 'MENS_DOUBLES', 'WOMENS_DOUBLES', 'WOMENS_DOUBLES', 'MIXED_DOUBLES', 'MIXED_DOUBLES']
+        courtFormats: ['MENS_DOUBLES', 'MENS_DOUBLES', 'WOMENS_DOUBLES', 'WOMENS_DOUBLES', 'MIXED_DOUBLES', 'MIXED_DOUBLES', 'OPEN_DOUBLES']
       })
     });
     if (!response.ok) throw new Error(`API returned ${response.status}`);
 
-    const allocation = await response.json();
-    rounds = allocation.courts.map(({ courtNumber, format, players }) => ({
-      court: courtNumber,
-      format: formatLabels[format] || format,
-      color: colourForFormat(format),
-      players: players.map(player => ({
-        name: player.name,
-        division: roster.find(rosterPlayer => rosterPlayer.id === player.id)?.division || '?'
-      }))
-    }));
-      waiting = allocation.waiting.map(player => ({
-        name: player.name,
-        gamesPlayed: player.gamesPlayed,
-        division: roster.find(rosterPlayer => rosterPlayer.id === player.id)?.division || '?'
-      }));
-    document.querySelector('#round-number').textContent = String(allocation.roundNumber).padStart(2, '0');
-    renderCourts();
-    renderWaiting();
+    applyAllocation(await response.json());
+    await initializeRoster();
     button.innerHTML = 'Round generated <span>✓</span>';
     button.style.background = '#e6f5c1';
     setTimeout(() => { button.innerHTML = 'Generate next round <span>→</span>'; button.style.background = ''; }, 1800);
@@ -130,7 +226,9 @@ async function generateNextRound() {
     setTimeout(() => { button.innerHTML = 'Generate next round <span>→</span>'; button.style.background = ''; }, 1800);
     console.error('Could not generate round:', error);
   } finally {
+    button.dataset.busy = 'false';
     button.disabled = false;
+    updateGenerateButton();
   }
 }
 function announce() {
@@ -142,9 +240,24 @@ function announce() {
 }
 renderCourts(); renderWaiting();
 renderViews();
-document.querySelector('#club-session').addEventListener('change', () => { document.querySelector('#board-session').value = selectedSession(); renderScheduleNote(); renderCheckins(); });
-document.querySelector('#board-session').addEventListener('change', event => { document.querySelector('#club-session').value = event.target.value; renderScheduleNote(); renderCheckins(); });
-document.querySelector('#clear-checkins').addEventListener('click', async () => { await fetch(`${apiBaseUrl}/sessions/${selectedSession()}/check-ins`, { method: 'DELETE' }); renderCheckins(); });
+document.querySelector('#club-session').addEventListener('change', () => {
+  document.querySelector('#board-session').value = selectedSession();
+  renderScheduleNote();
+  renderCheckins();
+  initializeLatestRound();
+});
+document.querySelector('#board-session').addEventListener('change', event => {
+  document.querySelector('#club-session').value = event.target.value;
+  renderScheduleNote();
+  renderCheckins();
+  initializeLatestRound();
+});
+document.querySelector('#clear-checkins').addEventListener('click', endClubNight);
+document.querySelector('#end-night-button').addEventListener('click', endClubNight);
+document.querySelector('#swap-cancel').addEventListener('click', closeSwapModal);
+document.querySelector('#swap-modal').addEventListener('click', event => {
+  if (event.target.id === 'swap-modal') closeSwapModal();
+});
 document.querySelector('#player-form').addEventListener('submit', async event => {
   event.preventDefault();
   const response = await fetch(`${apiBaseUrl}/players`, {
@@ -178,10 +291,16 @@ async function initializeSessions() {
   renderScheduleNote();
 }
 
+async function initializeLatestRound() {
+  const response = await fetch(`${apiBaseUrl}/sessions/${selectedSession()}/rounds/latest`);
+  if (!response.ok) throw new Error(`Could not load latest round: ${response.status}`);
+  applyAllocation(await response.json());
+}
+
 document.querySelector('#next-round-button').addEventListener('click', generateNextRound);
 document.querySelector('#announce-button').addEventListener('click', announce);
 initializeSessions()
+  .then(initializeLatestRound)
   .then(initializeRoster)
-  .then(renderCheckins)
-  .then(renderPlayers)
+  .then(initializeLatestRound)
   .catch(error => console.error('Could not load club data:', error));
