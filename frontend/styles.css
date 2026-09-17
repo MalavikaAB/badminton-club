@@ -31,7 +31,7 @@ h1,h2,p { margin:0; } h1 { font-size:clamp(34px,5vw,64px); letter-spacing:-2px; 
 .games-played { margin-left:auto; color:#9caaa2; font:11px 'DM Mono'; white-space:nowrap; }
 .wait-time { margin-left:0; white-space:nowrap; }
 .tabs { display:flex; gap:24px; border-bottom:1px solid var(--line); margin-bottom:42px; }
-.tab { border:0; border-bottom:2px solid transparent; background:transparent; color:var(--muted); cursor:pointer; font:600 13px 'Space Grotesk'; padding:0 0 13px; }
+.tab { border:0; border-bottom:2px solid transparent; background:transparent; color:var(--muted); cursor:pointer; font:600 16px 'Space Grotesk'; padding:0 0 13px; }
 .tab.active { border-color:var(--green); color:var(--green); }
 .view { display:none; }
 .active-view { display:block; }
@@ -48,6 +48,9 @@ input,select { min-height:42px; border:1px solid var(--line); background:var(--p
 .player-list,.directory-list { max-width:760px; }
 .checkin-player,.directory-row { display:flex; align-items:center; gap:14px; border-bottom:1px solid var(--line); padding:15px 0; color:var(--ink); font:15px 'Space Grotesk'; text-transform:none; }
 .checkin-player input { min-height:18px; width:18px; accent-color:var(--green); }
+/* Check-in names are what organisers scan down the roster, so they render a
+   step larger than the player-directory rows that share the layout above. */
+.checkin-player { font-size:19px; }
 .checkin-player small,.directory-row small { color:var(--muted); font:11px 'DM Mono'; margin-left:auto; }
 .directory-row > span { display:flex; flex-direction:column; gap:5px; }
 .remove-button { margin-left:auto; border:0; border-bottom:1px solid var(--coral); background:transparent; color:var(--coral); cursor:pointer; padding:5px 0; }
