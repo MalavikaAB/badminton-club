@@ -137,7 +137,7 @@ function renderCourts() {
   document.querySelector('#courts').innerHTML = rounds.map(({ court, format, color, players, teamA, teamB }) => `
     <article class="court" style="--court-color:${color}">
       <div class="court-number"><strong>COURT ${court}</strong><span>4 / 4</span></div>
-         <ul>${players.map(player => `<li class="${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''}"><span>${player.name}</span><small>Division ${player.division} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-out="${player.id}">Swap</button></li>`).join('')}</ul>
+         <ul>${players.map(player => `<li class="${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''}"><span title="${player.name}">${player.name}</span><small>Division ${player.division} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-out="${player.id}">Swap</button></li>`).join('')}</ul>
       <p class="format">${format}</p>
     </article>`).join('');
   document.querySelector('#playing-count').textContent = String(rounds.length * 4);
@@ -146,7 +146,7 @@ function renderCourts() {
 }
 
 function renderWaiting() {
-  document.querySelector('#waiting-list').innerHTML = waiting.map(player => `<li><span>${player.name}</span><small>Division ${player.division}</small><span class="games-played">${player.sittingOut ? 'Sitting out next' : `${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}`}</span><span class="wait-time">${player.roundsWaiting} ${player.roundsWaiting === 1 ? 'round wait' : 'rounds wait'}</span><button type="button" class="inline-action light" data-wait-sit-out="${player.id}" data-sitting-out="${player.sittingOut}">${player.sittingOut ? 'Cancel' : 'Sit out next'}</button></li>`).join('');
+  document.querySelector('#waiting-list').innerHTML = waiting.map(player => `<li><span title="${player.name}">${player.name}</span><small>Division ${player.division}</small><span class="games-played">${player.sittingOut ? 'Sitting out next' : `${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}`}</span><span class="wait-time">${player.roundsWaiting} ${player.roundsWaiting === 1 ? 'round wait' : 'rounds wait'}</span><button type="button" class="inline-action light" data-wait-sit-out="${player.id}" data-sitting-out="${player.sittingOut}">${player.sittingOut ? 'Cancel' : 'Sit out next'}</button></li>`).join('');
   document.querySelector('#waiting-count').textContent = String(waiting.length);
   document.querySelector('#queue-count').textContent = String(waiting.length);
   const longestWait = waiting.reduce((max, player) => Math.max(max, player.roundsWaiting || 0), 0);

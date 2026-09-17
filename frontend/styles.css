@@ -2,6 +2,10 @@
 .court li small,.waiting-panel li small { color:var(--muted); font:10px 'DM Mono'; white-space:nowrap; }
 .court li.team-a { border-left:3px solid var(--green); padding-left:8px; }
 .court li.team-b { border-left:3px solid var(--coral); padding-left:8px; }
+/* Player names stay on one line and ellipsize instead of wrapping, keeping
+   the division/games meta and Swap action aligned on every row. */
+.court li > span:first-child, .waiting-panel li > span:first-child { min-width:0; flex:1 1 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.court li small, .court li .inline-action, .waiting-panel li small, .waiting-panel li .games-played, .waiting-panel li .wait-time, .waiting-panel li .inline-action { flex:0 0 auto; }
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 :root { --ink:#18221e; --muted:#6e7b74; --paper:#f3f1e9; --panel:#fffdf7; --line:#d9ded4; --green:#1b6b4b; --lime:#cce86d; --coral:#e76f51; }
