@@ -25,15 +25,15 @@ function selectedSession() {
 }
 
 function fillDivisionSelects() {
-  document.querySelector('#player-division').innerHTML = divisions.map(division => `<option value="${division}">${division === 'Open' ? 'Open / social' : `Division ${division}`}</option>`).join('');
-  const sessionOptions = clubSessions.map(session => `<option value="${session.id}">${session.day} · Divisions ${session.divisions.join(', ')} · ${session.location}</option>`).join('');
+  document.querySelector('#player-division').innerHTML = divisions.map(division => `<option value="${division}">${division === 'Open' ? 'Open / social' : `Div ${division}`}</option>`).join('');
+  const sessionOptions = clubSessions.map(session => `<option value="${session.id}">${session.day} · Divs ${session.divisions.join(', ')} · ${session.location}</option>`).join('');
   document.querySelector('#club-session').innerHTML = sessionOptions;
   document.querySelector('#board-session').innerHTML = sessionOptions;
 }
 
 function renderScheduleNote() {
   const session = clubSessions.find(item => item.id === selectedSession());
-  document.querySelector('#division-schedule').textContent = `${session.day} · Divisions ${session.divisions.join(', ')} · ${session.location} · Ending the night clears rounds, waiting, and tonight's game counts.`;
+  document.querySelector('#division-schedule').textContent = `${session.day} · Divs ${session.divisions.join(', ')} · ${session.location} · Ending the night clears rounds, waiting, and tonight's game counts.`;
   document.querySelector('#board-title').textContent = `${session.day} club night · ${session.location}`;
 }
 
@@ -76,7 +76,7 @@ async function renderCheckins() {
   const sessionDefinition = clubSessions.find(item => item.id === session);
   const players = roster.filter(player => sessionDefinition.divisions.includes(player.division));
   document.querySelector('#checkin-list').innerHTML = players.length ? players.map(player => `
-    <label class="checkin-player"><input type="checkbox" data-checkin-id="${player.id}" ${checkedIn.has(player.id) ? 'checked' : ''}><span>${player.name}</span><small>Division ${player.division} · ${player.gender === 'MALE' ? 'Male' : 'Female'} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'} tonight</small>${checkedIn.has(player.id) ? `<button type="button" class="inline-action" data-sit-out-id="${player.id}" data-sitting-out="${sittingOut.has(player.id)}">${sittingOut.has(player.id) ? 'Cancel sit-out' : 'Sit out next round'}</button>` : ''}</label>`).join('') : '<p class="empty-state">No players in these divisions yet. Add one in the Players tab.</p>';
+    <label class="checkin-player"><input type="checkbox" data-checkin-id="${player.id}" ${checkedIn.has(player.id) ? 'checked' : ''}><span>${player.name}</span><small>Div ${player.division} · ${player.gender === 'MALE' ? 'Male' : 'Female'} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'} tonight</small>${checkedIn.has(player.id) ? `<button type="button" class="inline-action" data-sit-out-id="${player.id}" data-sitting-out="${sittingOut.has(player.id)}">${sittingOut.has(player.id) ? 'Cancel' : 'Break'}</button>` : ''}</label>`).join('') : '<p class="empty-state">No players in these divisions yet. Add one in the Players tab.</p>';
   checkedInCount = checkedIn.size;
   document.querySelector('#checkin-count').textContent = `${checkedIn.size} checked in`;
   updateGenerateButton();
@@ -109,7 +109,7 @@ function updateGenerateButton() {
 
 function renderPlayers() {
   document.querySelector('#players-list').innerHTML = roster.length ? roster.map(player => `
-    <div class="directory-row"><span><strong>${player.name}</strong><small>${player.gender === 'MALE' ? 'Male' : 'Female'} · Division ${player.division}</small></span><button class="remove-button" data-remove-id="${player.id}" title="Remove ${player.name}">Remove</button></div>`).join('') : '<p class="empty-state">No players added yet.</p>';
+    <div class="directory-row"><span><strong>${player.name}</strong><small>${player.gender === 'MALE' ? 'Male' : 'Female'} · Div ${player.division}</small></span><button class="remove-button" data-remove-id="${player.id}" title="Remove ${player.name}">Remove</button></div>`).join('') : '<p class="empty-state">No players added yet.</p>';
   document.querySelectorAll('[data-remove-id]').forEach(button => button.addEventListener('click', async () => {
     const response = await fetch(`${apiBaseUrl}/players/${button.dataset.removeId}`, { method: 'DELETE' });
     if (!response.ok) return;
@@ -137,7 +137,7 @@ function renderCourts() {
   document.querySelector('#courts').innerHTML = rounds.map(({ court, format, color, players, teamA, teamB }) => `
     <article class="court" style="--court-color:${color}">
       <div class="court-number"><strong>COURT ${court}</strong><span>4 / 4</span></div>
-         <ul>${players.map(player => `<li class="${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''}"><span title="${player.name}">${player.name}</span><small>Division ${player.division} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-out="${player.id}">Swap</button></li>`).join('')}</ul>
+         <ul>${players.map(player => `<li class="${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''}"><span title="${player.name}">${player.name}</span><small>Div ${player.division} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-out="${player.id}">Swap</button></li>`).join('')}</ul>
       <p class="format">${format}</p>
     </article>`).join('');
   document.querySelector('#playing-count').textContent = String(rounds.length * 4);
@@ -146,7 +146,12 @@ function renderCourts() {
 }
 
 function renderWaiting() {
-  document.querySelector('#waiting-list').innerHTML = waiting.map(player => `<li><span title="${player.name}">${player.name}</span><small>Division ${player.division}</small><span class="games-played">${player.sittingOut ? 'Sitting out next' : `${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}`}</span><span class="wait-time">${player.roundsWaiting} ${player.roundsWaiting === 1 ? 'round wait' : 'rounds wait'}</span><button type="button" class="inline-action light" data-wait-sit-out="${player.id}" data-sitting-out="${player.sittingOut}">${player.sittingOut ? 'Cancel' : 'Sit out next'}</button></li>`).join('');
+  document.querySelector('#waiting-list').innerHTML = waiting.map(player => `<li>
+      <div class="queue-body">
+        <div class="queue-identity"><span class="queue-name" title="${player.name}">${player.name}</span><small>Div ${player.division}</small></div>
+        <div class="queue-meta"><span class="games-played">${player.sittingOut ? 'On break' : `${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}`}</span><span class="wait-time">${player.roundsWaiting} ${player.roundsWaiting === 1 ? 'round wait' : 'rounds wait'}</span><button type="button" class="inline-action light" data-wait-sit-out="${player.id}" data-sitting-out="${player.sittingOut}">${player.sittingOut ? 'Cancel' : 'Break'}</button></div>
+      </div>
+    </li>`).join('');
   document.querySelector('#waiting-count').textContent = String(waiting.length);
   document.querySelector('#queue-count').textContent = String(waiting.length);
   const longestWait = waiting.reduce((max, player) => Math.max(max, player.roundsWaiting || 0), 0);
@@ -162,7 +167,7 @@ function openSwapModal(outPlayerId) {
     ? `Take ${outgoing.name} off court and send in someone waiting.`
     : 'Pick someone waiting to come on court.';
   document.querySelector('#swap-options').innerHTML = replacements.length
-    ? replacements.map(player => `<li><button type="button" data-swap-in="${player.id}">${player.name}<small>Division ${player.division} · ${player.gamesPlayed} games tonight</small></button></li>`).join('')
+    ? replacements.map(player => `<li><button type="button" data-swap-in="${player.id}">${player.name}<small>Div ${player.division} · ${player.gamesPlayed} games tonight</small></button></li>`).join('')
     : '<li class="empty-state">Nobody is waiting who can come on.</li>';
   document.querySelector('#swap-modal').classList.remove('hidden');
   document.querySelectorAll('[data-swap-in]').forEach(button => button.addEventListener('click', () => swapPlayers(button.dataset.swapIn)));

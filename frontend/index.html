@@ -50,9 +50,9 @@
       <aside class="waiting-panel">
         <div class="section-heading"><div><p class="eyebrow">QUEUE</p><h2>Waiting</h2></div><span class="queue-count" id="queue-count">0</span></div>
         <ol id="waiting-list"></ol>
-        <label class="toggle-row" for="separate-divisions"><input type="checkbox" id="separate-divisions" checked><span>Keep divisions on separate courts</span></label>
+        <label class="toggle-row" for="separate-divisions"><input type="checkbox" id="separate-divisions" checked><span>Keep divs on separate courts</span></label>
         <button class="primary-button" id="next-round-button">Generate next round <span>→</span></button>
-        <p class="fine-print">Assignments favour players who have sat out, then fewest games tonight. Sit someone out for the next round, or swap a court player with someone waiting.</p>
+        <p class="fine-print">Assignments favour players fewest games tonight, then longest waiting. Put someone on a break for the next round, or swap a court player with someone waiting.</p>
       </aside>
     </section>
     </section>
@@ -72,7 +72,7 @@
       <form id="player-form" class="player-form">
         <label>Name <input id="player-name" required placeholder="Player name"></label>
         <label>Gender <select id="player-gender"><option value="MALE">Male</option><option value="FEMALE">Female</option></select></label>
-        <label>Division <select id="player-division"></select></label>
+        <label>Div <select id="player-division"></select></label>
         <button class="primary-button" type="submit">Add player <span>+</span></button>
       </form>
       <div id="players-list" class="directory-list"></div>

@@ -2,10 +2,10 @@
 .court li small,.waiting-panel li small { color:var(--muted); font:10px 'DM Mono'; white-space:nowrap; }
 .court li.team-a { border-left:3px solid var(--green); padding-left:8px; }
 .court li.team-b { border-left:3px solid var(--coral); padding-left:8px; }
-/* Player names stay on one line and ellipsize instead of wrapping, keeping
-   the division/games meta and Swap action aligned on every row. */
-.court li > span:first-child, .waiting-panel li > span:first-child { min-width:0; flex:1 1 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.court li small, .court li .inline-action, .waiting-panel li small, .waiting-panel li .games-played, .waiting-panel li .wait-time, .waiting-panel li .inline-action { flex:0 0 auto; }
+/* Player names on court cards stay on one line and ellipsize instead of
+   wrapping, keeping the division/games meta and Swap action aligned. */
+.court li > span:first-child { min-width:0; flex:1 1 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.court li small, .court li .inline-action { flex:0 0 auto; }
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 :root { --ink:#18221e; --muted:#6e7b74; --paper:#f3f1e9; --panel:#fffdf7; --line:#d9ded4; --green:#1b6b4b; --lime:#cce86d; --coral:#e76f51; }
@@ -68,3 +68,15 @@ input,select { min-height:42px; border:1px solid var(--line); background:var(--p
 .modal-card li button small { display:block; color:var(--muted); font:11px 'DM Mono'; margin-top:4px; }
 .toggle-row { display:flex; align-items:center; gap:10px; margin:0 0 14px; color:#f7f6ed; font:12px 'DM Mono'; text-transform:none; cursor:pointer; }
 .toggle-row input { min-height:16px; width:16px; accent-color:var(--lime); cursor:pointer; }
+/* Waiting queue rows are split into two lines — name + div on the first,
+   games / wait / Break on the second — so player names keep the full width
+   of the narrow panel instead of being squeezed against the meta text.
+   Names only ellipsize when they are genuinely longer than the row. */
+.waiting-panel li { align-items:baseline; }
+.queue-body { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:5px; }
+.queue-identity { display:flex; align-items:baseline; gap:10px; min-width:0; }
+.queue-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.waiting-panel .queue-identity small { flex:0 0 auto; color:#9caaa2; }
+.queue-meta { display:flex; align-items:baseline; gap:10px; }
+.queue-meta .games-played { margin-left:0; }
+.queue-meta .wait-time { margin-left:auto; }
