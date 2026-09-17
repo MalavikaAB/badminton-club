@@ -72,11 +72,10 @@ async function renderCheckins() {
   if (!response.ok) throw new Error(`Could not load check-ins: ${response.status}`);
   const checkIns = await response.json();
   const checkedIn = new Set(checkIns.map(item => item.playerId));
-  const sittingOut = new Set(checkIns.filter(item => item.sittingOut).map(item => item.playerId));
   const sessionDefinition = clubSessions.find(item => item.id === session);
   const players = roster.filter(player => sessionDefinition.divisions.includes(player.division));
   document.querySelector('#checkin-list').innerHTML = players.length ? players.map(player => `
-    <label class="checkin-player"><input type="checkbox" data-checkin-id="${player.id}" ${checkedIn.has(player.id) ? 'checked' : ''}><span>${player.name}</span><small>Div ${player.division} · ${player.gender === 'MALE' ? 'Male' : 'Female'} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'} tonight</small>${checkedIn.has(player.id) ? `<button type="button" class="inline-action" data-sit-out-id="${player.id}" data-sitting-out="${sittingOut.has(player.id)}">${sittingOut.has(player.id) ? 'Cancel' : 'Break'}</button>` : ''}</label>`).join('') : '<p class="empty-state">No players in these divisions yet. Add one in the Players tab.</p>';
+    <label class="checkin-player"><input type="checkbox" data-checkin-id="${player.id}" ${checkedIn.has(player.id) ? 'checked' : ''}><span>${player.name}</span><small>Div ${player.division} · ${player.gender === 'MALE' ? 'Male' : 'Female'} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'} tonight</small></label>`).join('') : '<p class="empty-state">No players in these divisions yet. Add one in the Players tab.</p>';
   checkedInCount = checkedIn.size;
   document.querySelector('#checkin-count').textContent = `${checkedIn.size} checked in`;
   updateGenerateButton();
@@ -84,11 +83,6 @@ async function renderCheckins() {
     const method = event.target.checked ? 'POST' : 'DELETE';
     await fetch(`${apiBaseUrl}/sessions/${session}/check-ins/${event.target.dataset.checkinId}`, { method });
     renderCheckins();
-  }));
-  document.querySelectorAll('[data-sit-out-id]').forEach(button => button.addEventListener('click', async event => {
-    event.preventDefault();
-    event.stopPropagation();
-    await setSitOut(button.dataset.sitOutId, button.dataset.sittingOut === 'true');
   }));
 }
 
