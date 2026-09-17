@@ -159,16 +159,46 @@ function renderWaiting() {
   document.querySelectorAll('[data-wait-sit-out]').forEach(button => button.addEventListener('click', () => setSitOut(button.dataset.waitSitOut, button.dataset.sittingOut === 'true')));
 }
 
+// Mirrors the backend rule in ClubNightController.canSwap: open doubles takes
+// anyone, the gender-specific formats need a replacement of the same gender or
+// the court stops being a legal men's/women's/mixed line-up.
+function canReplaceIn(formatKey, outgoingGender, incomingGender) {
+  return formatKey === 'OPEN_DOUBLES' || outgoingGender === incomingGender;
+}
+
+// Spring sends the rejection reason as {"message":"..."}; show that instead of
+// the raw JSON blob so an organiser can see why the swap was refused.
+async function readErrorMessage(response) {
+  const body = await response.text();
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed.message) return parsed.message;
+  } catch {
+    // Not JSON - fall through to the hint below.
+  }
+  // A backend built without server.error.include-message strips the reason, so
+  // name the likeliest cause rather than dumping an opaque error document.
+  return 'Could not make that swap. Reload the board in case another device has moved on to the next round, then try again.';
+}
+
 function openSwapModal(outPlayerId) {
-  const outgoing = rounds.flatMap(court => court.players).find(player => player.id === outPlayerId);
-  const replacements = waiting.filter(player => !player.sittingOut);
+  const court = rounds.find(item => item.players.some(player => player.id === outPlayerId));
+  const outgoing = court?.players.find(player => player.id === outPlayerId);
+  // Only offer players who could legally take this court: the backend rejects a
+  // woman for a men's line-up (and vice versa), so don't list them at all.
+  const replacements = waiting.filter(player => !player.sittingOut
+    && (!outgoing || canReplaceIn(court.formatKey, outgoing.gender, player.gender)));
   swapOutPlayerId = outPlayerId;
   document.querySelector('#swap-copy').textContent = outgoing
-    ? `Take ${outgoing.name} off court and send in someone waiting.`
+    ? court.formatKey === 'OPEN_DOUBLES'
+      ? `Take ${outgoing.name} off court and send in someone waiting.`
+      : `Take ${outgoing.name} off court — ${court.format} needs another ${outgoing.gender === 'MALE' ? 'man' : 'woman'}.`
     : 'Pick someone waiting to come on court.';
   document.querySelector('#swap-options').innerHTML = replacements.length
     ? replacements.map(player => `<li><button type="button" data-swap-in="${player.id}">${player.name}<small>Div ${player.division} · ${player.gamesPlayed} games tonight</small></button></li>`).join('')
-    : '<li class="empty-state">Nobody is waiting who can come on.</li>';
+    : waiting.some(player => !player.sittingOut)
+      ? `<li class="empty-state">Nobody waiting suits ${court?.format || 'this court'} — it needs a ${outgoing?.gender === 'MALE' ? 'man' : 'woman'} to replace ${outgoing?.name || 'that player'}.</li>`
+      : '<li class="empty-state">Nobody is waiting who can come on.</li>';
   document.querySelector('#swap-modal').classList.remove('hidden');
   document.querySelectorAll('[data-swap-in]').forEach(button => button.addEventListener('click', () => swapPlayers(button.dataset.swapIn)));
 }
@@ -186,8 +216,10 @@ async function swapPlayers(inPlayerId) {
   });
   closeSwapModal();
   if (!response.ok) {
-    const message = await response.text();
-    window.alert(message || 'Could not swap those players.');
+    window.alert(await readErrorMessage(response));
+    // The usual cause is a board left open while another device generated the
+    // next round, so re-sync instead of leaving the stale line-up on screen.
+    initializeLatestRound().catch(() => {});
     return;
   }
   applyAllocation(await response.json());
@@ -262,6 +294,12 @@ document.querySelector('#board-session').addEventListener('change', event => {
 });
 document.querySelector('#clear-checkins').addEventListener('click', endClubNight);
 document.querySelector('#end-night-button').addEventListener('click', endClubNight);
+// Another device may have generated a round while this tab sat in the
+// background, which leaves the court cards pointing at players who have since
+// left the court, so re-read the latest round on the way back.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && clubSessions.length) initializeLatestRound().catch(() => {});
+});
 document.querySelector('#swap-cancel').addEventListener('click', closeSwapModal);
 document.querySelector('#swap-modal').addEventListener('click', event => {
   if (event.target.id === 'swap-modal') closeSwapModal();
