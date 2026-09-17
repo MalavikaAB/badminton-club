@@ -2,8 +2,14 @@ package ie.clubnight.scheduler;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
@@ -37,6 +43,20 @@ public class SchedulerService {
     private static final double OPPONENT_WEIGHT = 1.0;
 
     public RoundAllocation generateRound(int roundNumber, List<Player> checkedInPlayers, List<GameFormat> courtFormats) {
+        return generateRound(roundNumber, checkedInPlayers, courtFormats, false);
+    }
+
+    /**
+     * Generates the courts for one round.
+     *
+     * @param separateDivisions when {@code true}, courts are first allocated to
+     *     divisions in proportion to each division's share of the active roster
+     *     (Phase A), and every court is then filled from a single division
+     *     (Phase B) — no court ever mixes divisions. When {@code false}, the
+     *     whole active roster is solved as one pool (the original behaviour).
+     */
+    public RoundAllocation generateRound(int roundNumber, List<Player> checkedInPlayers,
+            List<GameFormat> courtFormats, boolean separateDivisions) {
         List<Player> resting = checkedInPlayers.stream().filter(Player::sittingOut).toList();
         List<Player> active = checkedInPlayers.stream().filter(player -> !player.sittingOut()).toList();
 
@@ -50,12 +70,11 @@ public class SchedulerService {
 
         // 1. Selection — sort by (gamesPlayed asc, FIFO stamp desc, arrival order).
         //    roundsWaiting is the FIFO stamp: higher = waited longer = played longer ago.
-        List<Player> ordered = active.stream()
-                .sorted(Comparator.comparingInt(Player::gamesPlayed)
-                        .thenComparing(Comparator.comparingInt(Player::roundsWaiting).reversed())
-                        .thenComparing(Player::checkedInAt)
-                        .thenComparing(Player::name))
-                .toList();
+        List<Player> ordered = active.stream().sorted(priority()).toList();
+
+        if (separateDivisions) {
+            return generateSeparatedRound(roundNumber, ordered, resting, courtCount);
+        }
 
         int selectedCount = courtCount * 4;
         List<Player> selected = new ArrayList<>(ordered.subList(0, selectedCount));
@@ -68,15 +87,93 @@ public class SchedulerService {
         List<CourtAssignment> courts = renumberCourts(buildAllCourts(selected, courtCount));
 
         // Build the waiting list (resting players + queue, in priority order).
-        Comparator<Player> priorityOrder = Comparator.comparingInt(Player::gamesPlayed)
-                .thenComparing(Comparator.comparingInt(Player::roundsWaiting).reversed())
-                .thenComparing(Player::checkedInAt)
-                .thenComparing(Player::name);
         List<Player> waiting = Stream.concat(resting.stream(), queue.stream())
-                .sorted(priorityOrder)
+                .sorted(priority())
                 .toList();
 
         return new RoundAllocation(roundNumber, courts, waiting);
+    }
+
+    // ===== Division-separated mode =====
+
+    /**
+     * Two-phase scheduling that never mixes divisions on a court.
+     *
+     * <p>Phase A walks the shared priority queue once, tracking each division's
+     * running tally; every time a tally reaches a multiple of 4 that division
+     * claims the next court and {@code remainingCourts} drops by one. A bigger
+     * division spreads the same court-time across more people, so its members'
+     * {@code gamesPlayed} falls behind faster, pulling them toward the front of
+     * the same priority queue used for everyone — no separate proportionality
+     * formula needed. Stops once all courts are claimed.</p>
+     *
+     * <p>Phase B solves each claiming division independently: select its first
+     * {@code courts * 4} players, apply the gender-parity swap, derive the
+     * court-type mix and pair up exactly as in the combined path, using just
+     * that division's players. Leftovers (0-3 stragglers short of a full court
+     * and parity swaps) go to the shared waiting list.</p>
+     */
+    private RoundAllocation generateSeparatedRound(int roundNumber, List<Player> ordered,
+            List<Player> resting, int courtCount) {
+        Map<String, Integer> courtsByDivision = allocateCourtsByDivision(ordered, courtCount);
+
+        List<CourtAssignment> allCourts = new ArrayList<>();
+
+        for (Map.Entry<String, Integer> entry : courtsByDivision.entrySet()) {
+            String division = entry.getKey();
+            int divisionCourts = entry.getValue();
+            List<Player> divisionPool = ordered.stream()
+                    .filter(player -> player.division().equals(division))
+                    .toList();
+
+            int selectedCount = Math.min(divisionCourts * 4, divisionPool.size());
+            List<Player> selected = new ArrayList<>(divisionPool.subList(0, selectedCount));
+            List<Player> queue = new ArrayList<>(divisionPool.subList(selectedCount, divisionPool.size()));
+
+            if (selectedCount >= 4) {
+                adjustGenderParity(selected, queue);
+                allCourts.addAll(buildAllCourts(selected, divisionCourts));
+            }
+        }
+
+        // Any active player not on a court goes to waiting: stragglers from a
+        // division too small to fill its courts, divisions that claimed no
+        // court at all, and gender-parity swaps.
+        Set<UUID> assigned = allCourts.stream()
+                .flatMap(court -> court.players().stream())
+                .map(Player::id)
+                .collect(Collectors.toSet());
+        List<Player> waitingPlayers = ordered.stream()
+                .filter(player -> !assigned.contains(player.id()))
+                .toList();
+
+        List<CourtAssignment> courts = renumberCourts(allCourts);
+        List<Player> waiting = Stream.concat(resting.stream(), waitingPlayers.stream())
+                .sorted(priority())
+                .toList();
+        return new RoundAllocation(roundNumber, courts, waiting);
+    }
+
+    /**
+     * Phase A: allocates courts to divisions in proportion to their share of the
+     * active roster. Walks the priority-ordered list once; each time a division
+     * reaches another multiple of 4 members seen, it claims a court.
+     */
+    private Map<String, Integer> allocateCourtsByDivision(List<Player> ordered, int courtCount) {
+        Map<String, Integer> courtsByDivision = new LinkedHashMap<>();
+        Map<String, Integer> divisionCounters = new HashMap<>();
+        int remainingCourts = courtCount;
+        for (Player player : ordered) {
+            if (remainingCourts == 0) {
+                break;
+            }
+            int seen = divisionCounters.merge(player.division(), 1, Integer::sum);
+            if (seen % 4 == 0) {
+                courtsByDivision.merge(player.division(), 1, Integer::sum);
+                remainingCourts--;
+            }
+        }
+        return courtsByDivision;
     }
 
     /**
@@ -96,6 +193,18 @@ public class SchedulerService {
     }
 
     // ===== Selection helpers =====
+
+    /**
+     * Global fairness ordering used for every selection decision: lowest
+     * {@code gamesPlayed} first; ties broken by longest-waiting (higher
+     * {@code roundsWaiting}), then earliest arrival, then name.
+     */
+    private static Comparator<Player> priority() {
+        return Comparator.comparingInt(Player::gamesPlayed)
+                .thenComparing(Comparator.comparingInt(Player::roundsWaiting).reversed())
+                .thenComparing(Player::checkedInAt)
+                .thenComparing(Player::name);
+    }
 
     /**
      * The court-type equations require an even number of men among the selected

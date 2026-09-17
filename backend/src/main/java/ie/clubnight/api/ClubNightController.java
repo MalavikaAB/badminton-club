@@ -322,11 +322,12 @@ public class ClubNightController {
                 nightId);
         List<Player> players = request.sessionId() == null
             ? request.players().stream().map(player -> new Player(
-                player.id(), player.name(), player.gender(), player.checkedInAt(),
+                player.id(), player.name(), player.gender(), player.division(), player.checkedInAt(),
                 player.gamesPlayed(), player.roundsWaiting(), Boolean.TRUE.equals(player.sittingOut()))).toList()
             : loadCheckedInPlayers(request.sessionId(), nightId);
 
-        RoundAllocation allocation = schedulerService.generateRound(roundNumber, players, request.courtFormats());
+        RoundAllocation allocation = schedulerService.generateRound(roundNumber, players, request.courtFormats(),
+                Boolean.TRUE.equals(request.separateDivisions()));
         if (request.sessionId() != null) {
             UUID roundId = UUID.randomUUID();
             jdbcTemplate.update(
@@ -359,7 +360,7 @@ public class ClubNightController {
 
     private List<Player> loadCheckedInPlayers(String sessionId, UUID nightId) {
         return jdbcTemplate.query(
-                "select p.id, p.name, p.gender, p.rounds_waiting, ci.checked_in_at, ci.sit_out_rounds, "
+                "select p.id, p.name, p.gender, p.division, p.rounds_waiting, ci.checked_in_at, ci.sit_out_rounds, "
                         + "coalesce((select count(*) from venue_round_players rp "
                         + "join venue_rounds r on r.id = rp.round_id "
                         + "where rp.player_id = p.id and r.night_id = ?), 0) as games_played "
@@ -386,6 +387,7 @@ public class ClubNightController {
                         playerId,
                         resultSet.getString("name"),
                         Player.Gender.valueOf(resultSet.getString("gender")),
+                        resultSet.getString("division"),
                         resultSet.getTimestamp("checked_in_at").toInstant(),
                         resultSet.getInt("games_played"),
                         resultSet.getInt("rounds_waiting"),
@@ -490,13 +492,15 @@ public class ClubNightController {
         };
     }
 
-    public record RoundRequest(String sessionId, int roundNumber, List<PlayerRequest> players, List<GameFormat> courtFormats) {
+    public record RoundRequest(String sessionId, int roundNumber, List<PlayerRequest> players,
+            List<GameFormat> courtFormats, Boolean separateDivisions) {
     }
 
     public record PlayerRequest(
             UUID id,
             String name,
             Player.Gender gender,
+            String division,
             Instant checkedInAt,
             int gamesPlayed,
             int roundsWaiting,

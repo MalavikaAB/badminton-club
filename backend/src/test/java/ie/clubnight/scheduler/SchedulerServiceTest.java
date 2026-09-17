@@ -248,6 +248,51 @@ class SchedulerServiceTest {
         assertThat(allocation.waiting()).hasSize(1);
     }
 
+    @Test
+    void separateDivisionsKeepsEveryCourtWithinOneDivision() {
+        List<Player> players = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            players.add(new Player(UUID.randomUUID(), "A-M" + i, Player.Gender.MALE, "A", ARRIVAL, 0, 0));
+            players.add(new Player(UUID.randomUUID(), "A-F" + i, Player.Gender.FEMALE, "A", ARRIVAL, 0, 0));
+            players.add(new Player(UUID.randomUUID(), "B-M" + i, Player.Gender.MALE, "B", ARRIVAL, 0, 0));
+            players.add(new Player(UUID.randomUUID(), "B-F" + i, Player.Gender.FEMALE, "B", ARRIVAL, 0, 0));
+        }
+
+        RoundAllocation allocation = scheduler.generateRound(1, players, List.of(
+                GameFormat.OPEN_DOUBLES, GameFormat.OPEN_DOUBLES,
+                GameFormat.OPEN_DOUBLES, GameFormat.OPEN_DOUBLES), true);
+
+        assertThat(allocation.courts()).hasSize(4);
+        assertThat(allocation.courts()).allSatisfy(court ->
+                assertThat(court.players().stream().map(Player::division).distinct())
+                        .hasSize(1));
+        assertThat(allocation.waiting()).isEmpty();
+    }
+
+    @Test
+    void separateDivisionsLeavesTooSmallDivisionWaiting() {
+        List<Player> players = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            players.add(new Player(UUID.randomUUID(), "A-M" + i, Player.Gender.MALE, "A", ARRIVAL, 0, 0));
+            players.add(new Player(UUID.randomUUID(), "A-F" + i, Player.Gender.FEMALE, "A", ARRIVAL, 0, 0));
+        }
+        players.add(new Player(UUID.randomUUID(), "B-Guy", Player.Gender.MALE, "B", ARRIVAL, 0, 0));
+        players.add(new Player(UUID.randomUUID(), "B-Girl", Player.Gender.FEMALE, "B", ARRIVAL, 0, 0));
+
+        RoundAllocation allocation = scheduler.generateRound(1, players, List.of(
+                GameFormat.OPEN_DOUBLES, GameFormat.OPEN_DOUBLES), true);
+
+        // 10 active -> 2 courts. Division A claims both (8 players); division B
+        // never reaches a multiple of 4, so both B players stay in waiting.
+        assertThat(allocation.courts()).hasSize(2);
+        assertThat(allocation.courts()).allSatisfy(court ->
+                assertThat(court.players().stream().map(Player::division).distinct())
+                        .hasSize(1));
+        assertThat(allocation.waiting())
+                .extracting(Player::division)
+                .containsOnly("B");
+    }
+
     private Player player(String name, Player.Gender gender, int games, int waiting) {
         return new Player(UUID.randomUUID(), name, gender, ARRIVAL, games, waiting);
     }

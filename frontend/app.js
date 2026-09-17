@@ -212,6 +212,7 @@ async function generateNextRound() {
         roundNumber: round,
         sessionId: selectedSession(),
         players: [],
+        separateDivisions: document.querySelector('#separate-divisions').checked,
         courtFormats: ['MENS_DOUBLES', 'MENS_DOUBLES', 'WOMENS_DOUBLES', 'WOMENS_DOUBLES', 'MIXED_DOUBLES', 'MIXED_DOUBLES', 'OPEN_DOUBLES']
       })
     });

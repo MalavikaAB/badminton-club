@@ -19,6 +19,7 @@ public record Player(
         UUID id,
         String name,
         Gender gender,
+        String division,
         Instant checkedInAt,
         int gamesPlayed,
         int roundsWaiting,
@@ -33,16 +34,31 @@ public record Player(
         if (gamesPlayed < 0 || roundsWaiting < 0) {
             throw new IllegalArgumentException("Player counters cannot be negative");
         }
+        division = division == null ? "" : division;
         pairCount = pairCount == null ? Map.of() : Map.copyOf(pairCount);
         oppCount = oppCount == null ? Map.of() : Map.copyOf(oppCount);
     }
 
     public Player(UUID id, String name, Gender gender, Instant checkedInAt, int gamesPlayed, int roundsWaiting) {
-        this(id, name, gender, checkedInAt, gamesPlayed, roundsWaiting, false, Map.of(), Map.of());
+        this(id, name, gender, "", checkedInAt, gamesPlayed, roundsWaiting, false, Map.of(), Map.of());
     }
 
     public Player(UUID id, String name, Gender gender, Instant checkedInAt, int gamesPlayed, int roundsWaiting, boolean sittingOut) {
-        this(id, name, gender, checkedInAt, gamesPlayed, roundsWaiting, sittingOut, Map.of(), Map.of());
+        this(id, name, gender, "", checkedInAt, gamesPlayed, roundsWaiting, sittingOut, Map.of(), Map.of());
+    }
+
+    public Player(UUID id, String name, Gender gender, String division, Instant checkedInAt, int gamesPlayed, int roundsWaiting) {
+        this(id, name, gender, division, checkedInAt, gamesPlayed, roundsWaiting, false, Map.of(), Map.of());
+    }
+
+    public Player(UUID id, String name, Gender gender, String division, Instant checkedInAt,
+            int gamesPlayed, int roundsWaiting, boolean sittingOut) {
+        this(id, name, gender, division, checkedInAt, gamesPlayed, roundsWaiting, sittingOut, Map.of(), Map.of());
+    }
+
+    public Player(UUID id, String name, Gender gender, Instant checkedInAt, int gamesPlayed, int roundsWaiting,
+            boolean sittingOut, Map<UUID, Integer> pairCount, Map<UUID, Integer> oppCount) {
+        this(id, name, gender, "", checkedInAt, gamesPlayed, roundsWaiting, sittingOut, pairCount, oppCount);
     }
 
     /** How many times this player has partnered with {@code otherId} this night. */
