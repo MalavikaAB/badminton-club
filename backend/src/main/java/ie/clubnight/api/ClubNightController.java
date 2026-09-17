@@ -32,7 +32,7 @@ import ie.clubnight.scheduler.SchedulerService;
 
 @RestController
 @RequestMapping("/api/club-night")
-@CrossOrigin(allowedOriginPatterns = {"http://localhost:*", "https://*.vercel.app"})
+@CrossOrigin(originPatterns = {"http://localhost:*", "https://*.vercel.app"})
 public class ClubNightController {
     private final SchedulerService schedulerService;
     private final JdbcTemplate jdbcTemplate;
