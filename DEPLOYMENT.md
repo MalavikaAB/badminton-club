@@ -117,6 +117,35 @@ list in `backend/src/main/java/ie/clubnight/api/ClubNightController.java`.
 
 ---
 
+## Troubleshooting
+
+### `Driver org.postgresql.Driver claims to not accept jdbcUrl, jdbc:postgresql://${SUPABASE_DB_HOST}...`
+
+The app cannot find the `SUPABASE_DB_*` environment variables, so the JDBC
+URL is never filled in. This happens when the service was created from the
+blueprint but the **`sync: false`** values were left blank or skipped.
+
+Fix:
+
+1. Render dashboard → **club-night-backend** → **Environment** tab.
+2. Add all 5 variables with the real values from
+   **Supabase → Project Settings → Database → Connection string (Pooler / Transaction)**:
+   `SUPABASE_DB_HOST`, `SUPABASE_DB_PORT`, `SUPABASE_DB_NAME`,
+   `SUPABASE_DB_USERNAME`, `SUPABASE_DB_PASSWORD`.
+3. **Save Changes**, then **Manual deploy → Deploy latest commit**.
+
+The backend now checks for these variables at startup and logs a clear
+"Missing Supabase database settings" error instead of the Hikari stack above.
+
+### `relation "players" does not exist`
+
+The auto-run scripts assume the `players` table already exists in Supabase
+(none of the migrations create it). If your Supabase project is fresh, create
+it once from the SQL Editor before starting the backend, or run the seed
+script `supabase-seed-players.sql` after creating the table.
+
+---
+
 ## Security note
 
 `backend/.env` contains the real Supabase password and is gitignored.
