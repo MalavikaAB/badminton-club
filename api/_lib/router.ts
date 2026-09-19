@@ -16,8 +16,12 @@ import { latestRound } from './latest';
 
 function parts(req: VercelRequest): string[] {
   const q = req.query.path;
-  if (Array.isArray(q)) return q.map(String).filter(Boolean);
-  if (typeof q === 'string' && q.length > 0) return q.split('/').filter(Boolean);
+  if (Array.isArray(q)) {
+    return q.flatMap((segment) => String(segment).split('/')).map((s) => decodeURIComponent(s)).filter(Boolean);
+  }
+  if (typeof q === 'string' && q.length > 0) {
+    return decodeURIComponent(q).split('/').filter(Boolean);
+  }
   const url = String(req.url ?? '').split('?')[0];
   const marker = '/api/';
   const idx = url.indexOf(marker);

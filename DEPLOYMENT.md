@@ -95,8 +95,10 @@ directory. If Root Directory is `frontend`, the site renders fine but **every
 
 - `outputDirectory: "frontend"` — serves `frontend/index.html`, `app.js`,
   `styles.css` at `/` (no separate static deployment needed).
-- One serverless function (`api/[...path].ts`) handles every `/api/club-night/...`
-  URL. That stays under the Vercel Hobby limit of 12 functions.
+- One serverless function (`api/index.ts`) handles every `/api/club-night/...`
+  URL via a rewrite in `vercel.json`. That stays under the Hobby 12-function
+  limit. Catch-all files like `api/[...path].ts` are a Next.js feature and
+  404 on this project.
 - Shared helpers live in `api/_lib/` and are not deployed as functions.
 
 `frontend/app.js` calls the API on the **same origin**:
