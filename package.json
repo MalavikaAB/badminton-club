@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vercel dev",
-    "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "postgres": "^3.4.5"

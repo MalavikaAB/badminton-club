@@ -1,153 +1,194 @@
 # Deploying the Club Night app
 
-This app has **two parts** — they are deployed separately:
+The whole app is **one Vercel project** — static frontend + serverless API:
 
 | Part | Tech | Where it runs |
 |---|---|---|
-| Frontend (board UI) | Static HTML/CSS/JS | **Vercel** |
-| Backend (Spring Boot API) | Java 21 | **Render** (Vercel cannot run Java) |
+| Frontend (board UI) | Static HTML/CSS/JS | Vercel static (`frontend/`) |
+| Backend (API) | TypeScript serverless functions | Vercel Functions (`api/`) |
 | Database | Supabase PostgreSQL | Supabase |
+
+> The old Java/Spring backend that ran on Render has been replaced by
+> `api/**/*.ts`. It is kept in `backend/` for reference only — it is no longer
+> deployed. Vercel does not support Java.
 
 ---
 
 ## 1. Supabase setup (do this first)
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. Go to **Project Settings → Database → Connection string** and copy the **Pooler / Transaction** details.
-3. You need these 5 values:
+2. Go to **Project Settings → Database → Connection string** and copy the
+   **Transaction pooler** URI (port **6543**). It looks like:
 
-   - `SUPABASE_DB_HOST` — e.g. `aws-1-eu-west-1.pooler.supabase.com`
-   - `SUPABASE_DB_PORT` — `5432` (or `6543` for the transaction pooler)
-   - `SUPABASE_DB_NAME` — `postgres`
-   - `SUPABASE_DB_USERNAME` — e.g. `postgres.rflztcthdtorfryeuzpt`
-   - `SUPABASE_DB_PASSWORD` — your database password
+   ```
+   postgresql://postgres.rflztcthdtorfryeuzpt:YOUR-PASSWORD@aws-1-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=require
+   ```
 
-> You don't need to run the schema manually — the backend runs
-> `src/main/resources/session-schema.sql` and `demo-data.sql` automatically on
-> first startup (`spring.sql.init.mode=always`). `supabase-seed-players.sql`
+> You don't need to run any SQL by hand — `api/_lib/schema.ts` creates the
+> `players`, `venue_*` tables and seeds the weekday sessions automatically on
+> the first request. `backend/src/main/resources/supabase-seed-players.sql`
 > is an *optional* script for 300 dummy players (run it in the SQL Editor if you want them).
+
+**Use the pooler (port 6543), not the direct connection (5432).** Serverless
+functions open many short-lived connections; the direct port will exhaust
+Supabase's limit.
 
 ---
 
-## 2. Deploy the backend to Render
+## 2. Add the database config to Vercel
 
-> **Why Docker?** Java is not one of Render's "native runtimes" (only
-> JS/TS, Python, Ruby, Go, Rust, Elixir are), and its auto-detection may
-> default to Node and not install Maven. A Docker deploy guarantees
-> Java 21 + Maven. The repo includes `backend/Dockerfile` and a
-> `render.yaml` blueprint for this.
-
-### Option A — Blueprint (recommended)
-
-The repo has a `render.yaml` that defines the web service for you:
-
-1. In [render.com](https://render.com): **New + → Blueprint** → connect the GitHub repo.
-2. Render finds `render.yaml`, shows the **`club-night-backend`** service.
-3. Tick **Apply** — Render will **prompt you for the 5 `SUPABASE_DB_*` env vars**
-   (they're declared `sync: false`, so their values live only in Render, never in git).
-4. Deploy. First build downloads Maven dependencies, so it takes a few minutes.
-
-### Option B — Manual web service
-
-1. **New → Web Service** → connect the repo.
-2. **Root Directory**: `backend`
-3. **Runtime / Environment**: choose **Docker** (Dockerfile is in `backend/`).
-4. Add the 5 environment variables (below).
-5. Deploy.
-
-### Environment variables (either option)
+The functions read the connection string from an environment variable. In the
+Vercel dashboard open your project → **Settings → Environment Variables** and add:
 
 ```
-SUPABASE_DB_HOST=aws-1-eu-west-1.pooler.supabase.com
-SUPABASE_DB_PORT=5432
+POSTGRES_URL=postgresql://postgres.xxxxx:YOUR-PASSWORD@aws-1-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=require
+```
+
+Tick **Production**, **Preview** and **Development**, then **Save**.
+
+Accepted alternatives (first one found wins) — handy if you still have the old
+Render values lying around:
+
+```
+DATABASE_URL=...
+POSTGRES_URL_NON_POOLING=...
+# or the 5 separate values the Spring backend used
+SUPABASE_DB_HOST=...
+SUPABASE_DB_PORT=6543
 SUPABASE_DB_NAME=postgres
-SUPABASE_DB_USERNAME=postgres.rflztcthdtorfryeuzpt
-SUPABASE_DB_PASSWORD=your-password
+SUPABASE_DB_USERNAME=...
+SUPABASE_DB_PASSWORD=...
 ```
+
+> **Environment variables only apply to new builds.** After saving, go to
+> **Deployments → … → Redeploy** (or push a commit) or the functions will keep
+> running without them.
 
 ### Verify
 
-- `https://club-night-backend.onrender.com/api/club-night/health` → `{"status":"ready"}`
-- `https://club-night-backend.onrender.com/api/club-night/database-health` → `{"status":"connected"}`
-
-**If you picked a different Render service name**, use *your* URL everywhere below.
+- `https://<your-project>.vercel.app/api/club-night/health` → `{"status":"ready"}`
+- `https://<your-project>.vercel.app/api/club-night/database-health` → `{"status":"connected"}`
 
 ---
 
-## 3. Point the frontend at the backend
+## 3. Project settings (the part that breaks the API)
 
-The frontend reads its API URL from `frontend/app.js` (first line):
+In **Settings → General**:
+
+| Setting | Value |
+|---|---|
+| Root Directory | `./` — **the repo root, not `frontend`** |
+| Framework Preset | `Other` |
+| Build Command | *(empty)* |
+| Output Directory | *(empty — `vercel.json` sets `outputDirectory: "frontend"`)* |
+| Install Command | *(empty — `npm install`)* |
+
+Vercel only builds the `api/` directory when it can see it from the root
+directory. If Root Directory is `frontend`, the site renders fine but **every
+`/api/*` request returns `404 NOT_FOUND`** — that was the original bug.
+
+---
+
+## 4. How routing works
+
+`vercel.json` at the repo root is the single source of truth:
+
+- `outputDirectory: "frontend"` — serves `frontend/index.html`, `app.js`,
+  `styles.css` at `/` (no separate static deployment needed).
+- Files under `api/` become functions automatically, including dynamic
+  segments: `api/club-night/sessions/[sessionId]/rounds/latest.ts` handles
+  `GET /api/club-night/sessions/<id>/rounds/latest`.
+- No `rewrites` are needed for those dynamic segments — Vercel's filesystem
+  router matches them directly.
+- `frontend/vercel.json` is only used if someone deploys `frontend/` as its own
+  project; the root config takes precedence for the normal deployment.
+
+`frontend/app.js` calls the API on the **same origin**:
 
 ```js
-const apiBaseUrl = 'https://club-night-backend.onrender.com/api/club-night';
+const apiBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:3000/api/club-night'
+  : '/api/club-night';
 ```
 
-- **Before deploying to Vercel**, make sure this matches your real Render URL.
-- For **local development**, change it back to `http://localhost:8080/api/club-night`.
+So there is no cross-origin request and no CORS configuration to maintain.
 
 ---
 
-## 4. Deploy the frontend to Vercel
+## 5. Local development
 
-1. In [vercel.com](https://vercel.com): **Add New → Project** → import the repo.
-2. **Root Directory**: `frontend`
-3. **Framework Preset**: `Other` (plain static HTML/CSS/JS, no build step)
-4. **Build Command**: leave empty
-5. Click **Deploy**.
+```bash
+npm install
+npm run dev        # vercel dev -> http://localhost:3000
+```
 
----
+Put the same `POSTGRES_URL` in a **root** `.env.local` (gitignored) so
+`vercel dev` can reach Supabase. Useful commands:
 
-## 5. CORS
-
-The backend already allows requests from:
-- `http://localhost:*` (local dev)
-- `https://*.vercel.app` (Vercel preview + production)
-
-If you use a **custom domain** on Vercel, add it to the `@CrossOrigin`
-list in `backend/src/main/java/ie/clubnight/api/ClubNightController.java`.
+```bash
+npm run typecheck  # tsc --noEmit over api/**/*.ts
+```
 
 ---
 
 ## 6. Verify the full stack
 
-- Frontend: open your Vercel URL — the board should load players and sessions.
-  - Uses the Render backend (check DevTools → Network for `API` calls).
-- Backend: `.../api/club-night/health` → `{"status":"ready"}`
-- Database: `.../api/club-night/database-health` → `{"status":"connected"}`
+1. Open `https://<your-project>.vercel.app` — the board loads the session
+   dropdown and the player list.
+2. `.../api/club-night/health` → `{"status":"ready"}`
+3. `.../api/club-night/database-health` → `{"status":"connected"}`
+4. In DevTools → Network, confirm API calls go to
+   `https://<your-project>.vercel.app/api/club-night/...`.
 
 ---
 
 ## Troubleshooting
 
-### `Driver org.postgresql.Driver claims to not accept jdbcUrl, jdbc:postgresql://${SUPABASE_DB_HOST}...`
+### Every `/api/*` returns `404 NOT_FOUND` but the page loads
 
-The app cannot find the `SUPABASE_DB_*` environment variables, so the JDBC
-URL is never filled in. This happens when the service was created from the
-blueprint but the **`sync: false`** values were left blank or skipped.
+The Vercel project's **Root Directory** is not `./`. Check
+**Settings → General → Root Directory** and set it to the repo root, then
+redeploy. A quick tell-tale: if `/index.html` returns a `308` redirect to `/`
+but `/api/club-night/health` is `404`, the build never saw `api/`.
 
-Fix:
+### `500 {"message":"Missing database settings: ..."}`
 
-1. Render dashboard → **club-night-backend** → **Environment** tab.
-2. Add all 5 variables with the real values from
-   **Supabase → Project Settings → Database → Connection string (Pooler / Transaction)**:
-   `SUPABASE_DB_HOST`, `SUPABASE_DB_PORT`, `SUPABASE_DB_NAME`,
-   `SUPABASE_DB_USERNAME`, `SUPABASE_DB_PASSWORD`.
-3. **Save Changes**, then **Manual deploy → Deploy latest commit**.
+`POSTGRES_URL` (or one of the alternatives) is not set for the environment you
+are hitting, or you saved it after the last build. Add it and redeploy.
 
-The backend now checks for these variables at startup and logs a clear
-"Missing Supabase database settings" error instead of the Hikari stack above.
+### `500` mentioning `prepared statement` or `bind message supplies ...`
 
-### `relation "players" does not exist`
+You are pointed at Supabase's **direct** connection (port `5432`) with pooled
+connections. Use the **Transaction pooler** URI (port `6543`);
+`api/_lib/db.ts` already runs with `max: 1` and `prepare: false` for that mode.
 
-The auto-run scripts assume the `players` table already exists in Supabase
-(none of the migrations create it). If your Supabase project is fresh, create
-it once from the SQL Editor before starting the backend, or run the seed
-script `supabase-seed-players.sql` after creating the table.
+### `type "uuid" does not exist` / `relation "players" does not exist`
+
+The `players` table is created by `api/_lib/schema.ts` on the first request —
+if you see this, the extension could not be installed. Run once in the Supabase
+SQL Editor:
+
+```sql
+create extension if not exists pgcrypto;
+```
+
+### A rejected swap shows a generic message instead of the reason
+
+The API returns `{"message":"..."}` (same shape Spring used), which
+`frontend/app.js` reads in `readErrorMessage`. If you see the fallback text, the
+response body was empty — check the function logs in **Vercel → Deployments →
+Functions**.
+
+### Cold starts feel slow
+
+Serverless functions scale to zero. The database round trip dominates the first
+request after idle (~300–800 ms), then it is warm. Keeping the pooler URI
+(6543) and `max: 1` is what prevents connection-limit errors under that load.
 
 ---
 
 ## Security note
 
-`backend/.env` contains the real Supabase password and is gitignored.
-Never commit it. In production the password lives only in Render's
-environment variables.
+`backend/.env` and `.env.local` contain the real Supabase password and are
+gitignored. Never commit them. In production the password lives only in
+Vercel's environment variables (encrypted).
