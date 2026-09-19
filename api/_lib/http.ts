@@ -18,7 +18,7 @@ export function handlePreflight(req: VercelRequest, res: VercelResponse): boolea
 
 export function sendJson(res: VercelResponse, status: number, body: unknown): void {
   applyCors(res);
-  res.status(status)on(body);
+  res.status(status).json(body);
 }
 
 /**

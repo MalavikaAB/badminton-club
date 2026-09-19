@@ -95,13 +95,9 @@ directory. If Root Directory is `frontend`, the site renders fine but **every
 
 - `outputDirectory: "frontend"` — serves `frontend/index.html`, `app.js`,
   `styles.css` at `/` (no separate static deployment needed).
-- Files under `api/` become functions automatically, including dynamic
-  segments: `api/club-night/sessions/[sessionId]/rounds/latest.ts` handles
-  `GET /api/club-night/sessions/<id>/rounds/latest`.
-- No `rewrites` are needed for those dynamic segments — Vercel's filesystem
-  router matches them directly.
-- `frontend/vercel.json` is only used if someone deploys `frontend/` as its own
-  project; the root config takes precedence for the normal deployment.
+- One serverless function (`api/[...path].ts`) handles every `/api/club-night/...`
+  URL. That stays under the Vercel Hobby limit of 12 functions.
+- Shared helpers live in `api/_lib/` and are not deployed as functions.
 
 `frontend/app.js` calls the API on the **same origin**:
 
