@@ -318,9 +318,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
     }));
   });
   if (rows.length > 0) {
-    await sql`insert into venue_round_players (round_id, court_number, format, team, player_id)
-      select * from jsonb_to_recordset(${JSON.stringify(rows)})
-      as x(round_id uuid, court_number int, format text, team text, player_id uuid)`;
+    await sql`insert into venue_round_players ${sql(rows, 'round_id', 'court_number', 'format', 'team', 'player_id')}`;
   }
   const assignedIds = allocation.courts.flatMap((c) => c.players.map((p) => p.id));
   if (assignedIds.length > 0) {
