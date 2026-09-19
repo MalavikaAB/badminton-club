@@ -1,6 +1,22 @@
 {
-    "$schema": "https://openapi.vercel.sh/vercel.json",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
+  "rewrites": [
+    { "source": "/api/club-night/sessions/:sessionId/check-ins/clear", "destination": "/api/club-night/sessions/[sessionId]/check-ins/clear" },
+    { "source": "/api/club-night/sessions/:sessionId/check-ins/:playerId/sit-out", "destination": "/api/club-night/sessions/[sessionId]/check-ins/[playerId]/sit-out" },
+    { "source": "/api/club-night/sessions/:sessionId/check-ins/:playerId", "destination": "/api/club-night/sessions/[sessionId]/check-ins/[playerId]" },
+    { "source": "/api/club-night/sessions/:sessionId/check-ins", "destination": "/api/club-night/sessions/[sessionId]/check-ins/index" },
+    { "source": "/api/club-night/sessions/:sessionId/rounds/latest", "destination": "/api/club-night/sessions/[sessionId]/rounds/latest" },
+    { "source": "/api/club-night/sessions/:sessionId/swap", "destination": "/api/club-night/sessions/[sessionId]/swap" },
+    { "source": "/api/club-night/sessions/:sessionId/end-night", "destination": "/api/club-night/sessions/[sessionId]/end-night" },
+    { "source": "/api/club-night/players/:id", "destination": "/api/club-night/players/[id]" }
+  ],
+  "builds": [
+    { "src": "api/**/*.ts", "use": "@vercel/node" }
+  ],
+  "functions": {
+    "api/**/*.ts": { "maxDuration": 10 }
+  },
   "headers": [
     {
       "source": "/api/(.*)",
@@ -12,3 +28,4 @@
     }
   ]
 }
+
