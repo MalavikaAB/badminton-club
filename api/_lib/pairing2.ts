@@ -28,25 +28,36 @@ export function replacePlayer(ps: Player[], out: Player, inn: Player): Player[] 
   const r = [...ps]; r[r.findIndex((p) => p.id === out.id)] = inn; return r;
 }
 export function localSearch(courts: CourtAssignment[]): void {
-  let imp: boolean;
-  do {
-    imp = false;
-    for (let i = 0; i < courts.length; i++) for (let j = i+1; j < courts.length; j++) {
-      const ci = courts[i]; const cj = courts[j];
-      for (const pi of ci.players) for (const pj of cj.players) {
-        const ni = replacePlayer(ci.players, pi, pj);
-        const nj = replacePlayer(cj.players, pj, pi);
-        if (!validForFormat(ci.format, ni) || !validForFormat(cj.format, nj)) continue;
-        const old = courtCostOf(ci) + courtCostOf(cj);
-        const si = bestSplit(ni); const sj = bestSplit(nj);
-        if (si.cost + sj.cost < old) {
-          courts[i] = { ...ci, players: ni, teamA: si.teamA, teamB: si.teamB };
-          courts[j] = { ...cj, players: nj, teamA: sj.teamA, teamB: sj.teamB };
-          imp = true;
+  const MAX_PASSES = 100;
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    let improved = false;
+    for (let i = 0; i < courts.length; i++) {
+      for (let j = i + 1; j < courts.length; j++) {
+        let swapped = false;
+        for (const pi of [...courts[i].players]) {
+          for (const pj of [...courts[j].players]) {
+            const ci = courts[i];
+            const cj = courts[j];
+            const ni = replacePlayer(ci.players, pi, pj);
+            const nj = replacePlayer(cj.players, pj, pi);
+            if (!validForFormat(ci.format, ni) || !validForFormat(cj.format, nj)) continue;
+            const old = courtCostOf(ci) + courtCostOf(cj);
+            const si = bestSplit(ni); const sj = bestSplit(nj);
+            if (si.cost + sj.cost < old) {
+              courts[i] = { ...ci, players: ni, teamA: si.teamA, teamB: si.teamB };
+              courts[j] = { ...cj, players: nj, teamA: sj.teamA, teamB: sj.teamB };
+              improved = true;
+              swapped = true;
+              break;
+            }
+          }
+          if (swapped) break;
         }
+        if (swapped) break;
       }
     }
-  } while (imp);
+    if (!improved) break;
+  }
 }
 function take(pool: Player[], chosen: Player[]): void {
   const ids = new Set(chosen.map((p) => p.id));

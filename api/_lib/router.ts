@@ -307,20 +307,28 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   const roundId = randomUUID();
   await sql`insert into venue_rounds (id, session_id, night_id, round_number)
     values (${roundId}, ${sessionId}, ${nightId}, ${allocation.roundNumber})`;
-  for (const court of allocation.courts) {
+  const rows = allocation.courts.flatMap((court) => {
     const teamA = new Set(court.teamA.map((p) => p.id));
-    for (const p of court.players) {
-      await sql`insert into venue_round_players (round_id, court_number, format, team, player_id)
-        values (${roundId}, ${court.courtNumber}, ${court.format},
-        ${teamA.has(p.id) ? 'A' : 'B'}, ${p.id})`;
-    }
+    return court.players.map((p) => ({
+      round_id: roundId,
+      court_number: court.courtNumber,
+      format: court.format,
+      team: teamA.has(p.id) ? 'A' : 'B',
+      player_id: p.id,
+    }));
+  });
+  if (rows.length > 0) {
+    await sql`insert into venue_round_players (round_id, court_number, format, team, player_id)
+      select * from jsonb_to_recordset(${JSON.stringify(rows)})
+      as x(round_id uuid, court_number int, format text, team text, player_id uuid)`;
   }
-  const assignedIds = new Set(allocation.courts.flatMap((c) => c.players.map((p) => p.id)));
-  for (const pid of assignedIds) {
-    await sql`update players set rounds_waiting = 0 where id = ${pid}`;
+  const assignedIds = allocation.courts.flatMap((c) => c.players.map((p) => p.id));
+  if (assignedIds.length > 0) {
+    await sql`update players set rounds_waiting = 0 where id = any(${assignedIds}::uuid[])`;
   }
-  for (const p of allocation.waiting) {
-    await sql`update players set rounds_waiting = rounds_waiting + 1 where id = ${p.id}`;
+  const waitingIds = allocation.waiting.map((p) => p.id);
+  if (waitingIds.length > 0) {
+    await sql`update players set rounds_waiting = rounds_waiting + 1 where id = any(${waitingIds}::uuid[])`;
   }
   await sql`update venue_check_ins set sit_out_rounds = greatest(sit_out_rounds - 1, 0)
     where session_id = ${sessionId} and sit_out_rounds > 0`;

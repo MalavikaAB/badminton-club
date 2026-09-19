@@ -4,7 +4,7 @@ import { routeClubNight } from './_lib/router.js';
 
 export const config = {
   runtime: 'nodejs',
-  maxDuration: 10,
+  maxDuration: 30,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {

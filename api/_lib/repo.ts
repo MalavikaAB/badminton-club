@@ -41,21 +41,18 @@ export async function resetStaleNight(sessionId: string): Promise<void> {
   const stale = await sql`select exists (select 1 from venue_nights
     where session_id = ${sessionId} and status = 'OPEN'
     and (started_at at time zone 'Europe/Dublin')::date < (now() at time zone 'Europe/Dublin')::date) as stale`;
-  await sql`delete from venue_round_players where round_id in
-    (select id from venue_rounds where session_id = ${sessionId} and night_id is null)`;
   await sql`delete from venue_rounds where session_id = ${sessionId} and night_id is null`;
   if ((stale as any[])[0]?.stale === true) await endNight(sessionId);
 }
 
 export async function endNight(sessionId: string): Promise<void> {
   const sql = db();
-  const ids = await sql`
-    select distinct player_id from venue_check_ins where session_id = ${sessionId}
-    union select distinct rp.player_id from venue_round_players rp
-    join venue_rounds r on r.id = rp.round_id where r.session_id = ${sessionId}`;
-  for (const row of ids as any[]) {
-    await sql`update players set games_played = 0, rounds_waiting = 0 where id = ${row.player_id}`;
-  }
+  await sql`update players set games_played = 0, rounds_waiting = 0
+    where id in (
+      select player_id from venue_check_ins where session_id = ${sessionId}
+      union select rp.player_id from venue_round_players rp
+      join venue_rounds r on r.id = rp.round_id where r.session_id = ${sessionId}
+    )`;
   await sql`delete from venue_round_players
     where round_id in (select id from venue_rounds where session_id = ${sessionId})`;
   await sql`delete from venue_rounds where session_id = ${sessionId}`;
