@@ -14,9 +14,9 @@ export function solveMix(courtCount: number, men: number, women: number): CourtM
     cands.push({ md: a, wd: b, xd: c, open: 0 });
   }
   if (!cands.length) return null;
-  const all3 = cands.filter((m) => m.md >= 1 && m.wd >= 1 && m.xd >= 1);
-  const pool = all3.length ? all3 : cands;
-  return pool.reduce((x, y) => (y.xd > x.xd ? y : x));
+  // Prefer men's/women's doubles over mixed: fewest mixed courts first,
+  // then the most men's doubles as a deterministic tie-break.
+  return cands.sort((x, y) => x.xd - y.xd || y.md - x.md)[0];
 }
 
 export function buildAllCourts(selected: Player[], courtCount: number): CourtAssignment[] {
@@ -50,9 +50,9 @@ export function pairTypedCourts(players: Player[], mix: CourtMix): CourtAssignme
   const menPool = players.filter((p) => p.gender === 'MALE');
   const womenPool = players.filter((p) => p.gender === 'FEMALE');
   const courts: CourtAssignment[] = [];
-  for (let i = 0; i < mix.xd; i++) courts.push(buildCourt2('MIXED_DOUBLES', menPool, womenPool));
   for (let i = 0; i < mix.md; i++) courts.push(buildCourt2('MENS_DOUBLES', menPool, womenPool));
   for (let i = 0; i < mix.wd; i++) courts.push(buildCourt2('WOMENS_DOUBLES', menPool, womenPool));
+  for (let i = 0; i < mix.xd; i++) courts.push(buildCourt2('MIXED_DOUBLES', menPool, womenPool));
   localSearch(courts);
   return courts;
 }

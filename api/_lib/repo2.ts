@@ -26,14 +26,11 @@ export async function syncPairCounts(nightId: string): Promise<void> {
 
 export async function loadCheckedInPlayers(sessionId: string, nightId: string | null): Promise<Player[]> {
   const sql = db();
-  const rows = await sql`select p.id, p.name, p.gender, p.games_played, p.rounds_waiting,
+  const rows = await sql`select p.id, p.name, p.gender, p.division, p.games_played, p.rounds_waiting,
     ci.checked_in_at, coalesce(ci.sit_out_rounds, 0) as sit_out_rounds,
-    coalesce(d.divisions, '') as divisions,
     coalesce(pc.pairs, '{}') as pairs, coalesce(pc.opps, '{}') as opps
     from venue_check_ins ci
     join players p on p.id = ci.player_id
-    left join lateral (select string_agg(vsd.division, ',' order by vsd.division) as divisions
-    from venue_session_divisions vsd where vsd.session_id = ${sessionId}) d on true
     left join lateral (select coalesce(array_agg(pc2.other_id || ':' || pc2.pair_count), '{}') as pairs,
     coalesce(array_agg(pc2.other_id || ':' || pc2.opp_count), '{}') as opps
     from venue_pair_counts pc2 where pc2.night_id = ${nightId} and pc2.player_id = p.id) pc on true
@@ -53,10 +50,9 @@ function parseCounts(entries: string[]): Record<string, number> {
 
 function toPlayer(r: any): Player {
   const checkedInAt = r.checked_in_at ? new Date(r.checked_in_at).toISOString() : EPOCH;
-  const first = String(r.divisions ?? '').split(',').filter(Boolean)[0] ?? '';
   return {
     id: String(r.id), name: r.name, gender: r.gender as Gender,
-    division: first, checkedInAt,
+    division: String(r.division ?? ''), checkedInAt,
     gamesPlayed: Number(r.games_played ?? 0),
     roundsWaiting: Number(r.rounds_waiting ?? 0),
     sittingOut: Number(r.sit_out_rounds ?? 0) > 0,

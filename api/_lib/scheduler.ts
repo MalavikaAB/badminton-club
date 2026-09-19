@@ -32,37 +32,37 @@ function generateSeparatedRound(
   resting: Player[],
   courtCount: number,
 ): RoundAllocation {
-  const byDiv = allocateCourtsByDivision(ordered, courtCount);
+  // Group by each player's own division, keeping priority order inside a group.
+  const byDiv = new Map<string, Player[]>();
+  for (const p of ordered) {
+    if (!byDiv.has(p.division)) byDiv.set(p.division, []);
+    byDiv.get(p.division)!.push(p);
+  }
+  const groups = [...byDiv.entries()]
+    .filter(([, pool]) => pool.length >= 4)
+    .map(([division, pool]) => ({ division, pool, courts: Math.floor(pool.length / 4) }));
+  let total = groups.reduce((sum, g) => sum + g.courts, 0);
+  // Hand out spare courts to divisions with the most left-over players, but
+  // only while the division can still field a full additional court.
+  while (total < courtCount) {
+    const candidate = groups
+      .filter((g) => g.pool.length >= (g.courts + 1) * 4)
+      .sort((a, b) => (b.pool.length - (b.courts + 1) * 4) - (a.pool.length - (a.courts + 1) * 4))[0];
+    if (!candidate) break;
+    candidate.courts++;
+    total++;
+  }
   const all: CourtAssignment[] = [];
-  for (const [division, n] of byDiv) {
-    const pool = ordered.filter((p) => p.division === division);
-    const take = Math.min(n * 4, pool.length);
-    const selected = pool.slice(0, take);
-    const queue = pool.slice(take);
-    if (take >= 4) {
-      adjustGenderParity(selected, queue);
-      all.push(...buildAllCourts(selected, n));
-    }
+  for (const g of groups) {
+    if (g.courts <= 0) continue;
+    const selected = g.pool.slice(0, g.courts * 4);
+    const queue = g.pool.slice(g.courts * 4);
+    adjustGenderParity(selected, queue);
+    all.push(...buildAllCourts(selected, g.courts));
   }
   const assigned = new Set(all.flatMap((c) => c.players.map((p) => p.id)));
   const waitingPlayers = ordered.filter((p) => !assigned.has(p.id));
   return { roundNumber, courts: renumberCourts(all), waiting: [...resting, ...waitingPlayers].sort(comparePriority) };
-}
-
-function allocateCourtsByDivision(ordered: Player[], courtCount: number): Map<string, number> {
-  const out = new Map<string, number>();
-  const seen = new Map<string, number>();
-  let remaining = courtCount;
-  for (const p of ordered) {
-    if (remaining === 0) break;
-    const n = (seen.get(p.division) ?? 0) + 1;
-    seen.set(p.division, n);
-    if (n % 4 === 0) {
-      out.set(p.division, (out.get(p.division) ?? 0) + 1);
-      remaining--;
-    }
-  }
-  return out;
 }
 
 export function renumberCourts(courts: CourtAssignment[]): CourtAssignment[] {
@@ -70,8 +70,9 @@ export function renumberCourts(courts: CourtAssignment[]): CourtAssignment[] {
 }
 
 export function comparePriority(a: Player, b: Player): number {
-  if (a.gamesPlayed !== b.gamesPlayed) return a.gamesPlayed - b.gamesPlayed;
+  // Waiting time is the most important factor: longest wait plays first.
   if (a.roundsWaiting !== b.roundsWaiting) return b.roundsWaiting - a.roundsWaiting;
+  if (a.gamesPlayed !== b.gamesPlayed) return a.gamesPlayed - b.gamesPlayed;
   if (a.checkedInAt !== b.checkedInAt) return a.checkedInAt < b.checkedInAt ? -1 : 1;
   return a.name.localeCompare(b.name);
 }
