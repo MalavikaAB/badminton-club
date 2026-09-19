@@ -8,3 +8,4 @@ backend/demo-data.sql
 *.sql.bak
 frontend/node_modules/
 frontend/.next/
+*.txt
