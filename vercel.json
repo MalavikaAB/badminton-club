@@ -1,8 +1,6 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "outputDirectory": "frontend",
+    "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
-  "trailingSlash": false,
   "headers": [
     {
       "source": "/api/(.*)",
