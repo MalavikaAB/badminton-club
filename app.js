@@ -239,6 +239,7 @@ function applyAllocation(allocation) {
 
 async function renderCheckins() {
   const session = selectedSession();
+  if (!session) return;
   const response = await fetch(`${apiBaseUrl}/sessions/${session}/check-ins`);
   if (!response.ok) throw new Error(`Could not load check-ins: ${response.status}`);
   const checkIns = await response.json();

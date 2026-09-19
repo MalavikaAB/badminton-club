@@ -1,11 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/index.ts": { "maxDuration": 20 }
+    "api/index.ts": { "maxDuration": 10 }
   },
   "rewrites": [
-    { "source": "/api/club-night", "destination": "/api" },
-    { "source": "/api/club-night/:path*", "destination": "/api?path=club-night/:path*" }
+    { "source": "/api/club-night", "destination": "/api/index" },
+    { "source": "/api/club-night/:path*", "destination": "/api/index?path=club-night/:path*" }
   ],
   "headers": [
     { "source": "/api/(.*)", "headers": [

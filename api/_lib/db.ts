@@ -1,4 +1,6 @@
-import postgres from 'postgres';
+import postgresPkg from 'postgres';
+
+const postgres: typeof postgresPkg = (postgresPkg as any)?.default ?? postgresPkg;
 
 let client: postgres.Sql | null = null;
 

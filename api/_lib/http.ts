@@ -6,11 +6,11 @@ export function applyCors(res: VercelResponse): void {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
-/** Returns true when the request was an OPTIONS preflight that is now handled. */
 export function handlePreflight(req: VercelRequest, res: VercelResponse): boolean {
   applyCors(res);
   if (req.method === 'OPTIONS') {
-    res.status(204).end();
+    res.statusCode = 204;
+    res.end();
     return true;
   }
   return false;
@@ -18,13 +18,12 @@ export function handlePreflight(req: VercelRequest, res: VercelResponse): boolea
 
 export function sendJson(res: VercelResponse, status: number, body: unknown): void {
   applyCors(res);
-  res.status(status).json(body);
+  if (res.headersSent) return;
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify(body));
 }
 
-/**
- * Error shape mirrors Spring Boot (server.error.include-message=always):
- * the frontend reads `message` to explain refused swaps.
- */
 export function sendError(res: VercelResponse, status: number, message: string): void {
   sendJson(res, status, { message });
 }
@@ -42,4 +41,3 @@ export async function readJson(req: VercelRequest): Promise<any> {
   }
   return {};
 }
-

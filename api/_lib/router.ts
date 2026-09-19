@@ -72,6 +72,10 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
 
     if (root[0] === 'sessions' && root.length >= 2) {
       const sessionId = root[1];
+      if (!sessionId || sessionId === 'undefined' || sessionId === 'check-ins') {
+        sendJson(res, 400, { message: 'Session id is required' });
+        return;
+      }
       if (method === 'GET' && root[2] === 'rounds' && root[3] === 'latest' && root.length === 4) {
         await handleLatestRound(res, sessionId);
         return;
