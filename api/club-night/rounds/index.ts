@@ -6,7 +6,12 @@ import { ensureSchema } from '../../_lib/schema';
 import { generateRound } from '../../_lib/scheduler';
 import { EPOCH, type Gender, type Player } from '../../_lib/types';
 import { ensureOpenNight, openNightId, resetStaleNight } from '../../_lib/repo';
-import { loadCheckedInPlayers, serializeAllocation, syncNightGameCounts, syncPairCounts, toGameFormat } from '../../_lib/repo2';
+import {
+  loadCheckedInPlayers,
+  serializeAllocation,
+  syncNightGameCounts,
+  syncPairCounts,
+} from '../../_lib/repo2';
 import { latestRound } from '../../_lib/latest';
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -20,7 +25,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const roundNumber = Number(body?.roundNumber ?? 0);
     const separate = body?.separateDivisions === true;
     const formats = (Array.isArray(body?.courtFormats) ? body.courtFormats : [])
-      .map(toGameFormat)
+      .map((f) => {
+        if (f === 'MENS_DOUBLES' || f === 'WOMENS_DOUBLES' || f === 'MIXED_DOUBLES' || f === 'OPEN_DOUBLES') return f;
+        return null;
+      })
       .filter((f): f is NonNullable<typeof f> => f !== null);
     if (sessionId) await resetStaleNight(sessionId);
     const nightId = sessionId ? await ensureOpenNight(sessionId) : null;
