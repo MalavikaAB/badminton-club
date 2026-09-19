@@ -8,11 +8,13 @@ export function generateRound(
   checkedInPlayers: Player[],
   courtFormats?: GameFormat[] | null,
   separateDivisions = false,
+  maxCourts?: number,
 ): RoundAllocation {
   const resting = checkedInPlayers.filter((p) => p.sittingOut);
   const active = checkedInPlayers.filter((p) => !p.sittingOut);
   const requested = !courtFormats || courtFormats.length === 0 ? DEFAULT_COURTS : courtFormats.length;
-  const courtCount = Math.min(DEFAULT_COURTS, Math.min(requested, Math.floor(active.length / 4)));
+  const cap = maxCourts && maxCourts > 0 ? maxCourts : DEFAULT_COURTS;
+  const courtCount = Math.min(cap, Math.min(requested, Math.floor(active.length / 4)));
   if (courtCount === 0) return { roundNumber, courts: [], waiting: checkedInPlayers };
 
   const ordered = [...active].sort(comparePriority);
@@ -39,18 +41,19 @@ function generateSeparatedRound(
     byDiv.get(p.division)!.push(p);
   }
   const groups = [...byDiv.entries()]
-    .filter(([, pool]) => pool.length >= 4)
-    .map(([division, pool]) => ({ division, pool, courts: Math.floor(pool.length / 4) }));
-  let total = groups.reduce((sum, g) => sum + g.courts, 0);
-  // Hand out spare courts to divisions with the most left-over players, but
-  // only while the division can still field a full additional court.
-  while (total < courtCount) {
+    .map(([division, pool]) => ({ division, pool, courts: 0, left: pool.length }));
+  // Hand courts out one at a time to the division with the most players still
+  // unassigned, but never exceed courtCount in total, and only while the
+  // division can still field a full court of four.
+  let remaining = courtCount;
+  while (remaining > 0) {
     const candidate = groups
-      .filter((g) => g.pool.length >= (g.courts + 1) * 4)
-      .sort((a, b) => (b.pool.length - (b.courts + 1) * 4) - (a.pool.length - (a.courts + 1) * 4))[0];
+      .filter((g) => g.left >= 4)
+      .sort((a, b) => b.left - a.left || a.division.localeCompare(b.division))[0];
     if (!candidate) break;
     candidate.courts++;
-    total++;
+    candidate.left -= 4;
+    remaining--;
   }
   const all: CourtAssignment[] = [];
   for (const g of groups) {

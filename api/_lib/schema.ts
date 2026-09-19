@@ -27,8 +27,10 @@ create table if not exists venue_sessions (
   weekday text not null,
   location text not null,
   active boolean not null default true,
+  courts integer not null default 6,
   unique (weekday, location)
 );
+alter table venue_sessions add column if not exists courts integer not null default 6;
 create table if not exists venue_session_divisions (
   session_id text not null references venue_sessions(id) on delete cascade,
   division text not null,

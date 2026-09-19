@@ -5,7 +5,7 @@ import { db } from './db.js';
 import { ensureSchema } from './schema.js';
 import { canSwapFormat, generateRound } from './scheduler.js';
 import { EPOCH, type Gender, type Player } from './types.js';
-import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions } from './repo.js';
+import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions, sessionCourts } from './repo.js';
 import {
   loadCheckedInPlayers,
   serializeAllocation,
@@ -299,7 +299,8 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   } else {
     players = await loadCheckedInPlayers(sessionId, nightId);
   }
-  const allocation = generateRound(next, players, formats, separate);
+  const maxCourts = sessionId ? await sessionCourts(sessionId) : undefined;
+  const allocation = generateRound(next, players, formats, separate, maxCourts);
   if (!sessionId || !nightId) {
     sendJson(res, 200, serializeAllocation(allocation));
     return;

@@ -20,6 +20,12 @@ export async function sessions(): Promise<SessionRow[]> {
   return out;
 }
 
+export async function sessionCourts(sessionId: string): Promise<number> {
+  const sql = db();
+  const rows = await sql`select courts from venue_sessions where id = ${sessionId}`;
+  return Number((rows as any[])[0]?.courts ?? 6) || 6;
+}
+
 export async function openNightId(sessionId: string): Promise<string | null> {
   const sql = db();
   const rows = await sql`select id from venue_nights
