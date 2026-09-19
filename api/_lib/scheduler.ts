@@ -1,5 +1,5 @@
-import type { CourtAssignment, GameFormat, Player, RoundAllocation } from './types';
-import { buildAllCourts } from './pairing';
+import type { CourtAssignment, GameFormat, Player, RoundAllocation } from './types.js';
+import { buildAllCourts } from './pairing.js';
 
 const DEFAULT_COURTS = 6;
 

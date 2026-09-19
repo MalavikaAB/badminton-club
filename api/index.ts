@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handlePreflight, sendJson } from './_lib/http';
-import { routeClubNight } from './_lib/router';
+import { handlePreflight, sendJson } from './_lib/http.js';
+import { routeClubNight } from './_lib/router.js';
 
 export const config = {
   runtime: 'nodejs',

@@ -1,5 +1,5 @@
-import { db } from './db';
-import { EPOCH, type GameFormat, type Gender, type Player, type RoundAllocation } from './types';
+import { db } from './db.js';
+import { EPOCH, type GameFormat, type Gender, type Player, type RoundAllocation } from './types.js';
 
 export async function syncNightGameCounts(sessionId: string, nightId: string): Promise<void> {
   const sql = db();

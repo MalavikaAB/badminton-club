@@ -1,5 +1,5 @@
-import type { CourtAssignment, GameFormat, Player } from './types';
-import { buildCourt as buildCourt2, localSearch } from './pairing2';
+import type { CourtAssignment, GameFormat, Player } from './types.js';
+import { buildCourt as buildCourt2, localSearch } from './pairing2.js';
 
 interface CourtMix { md: number; wd: number; xd: number; open: number; }
 

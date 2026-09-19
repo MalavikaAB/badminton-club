@@ -1,18 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { readJson, sendError, sendJson } from './http';
-import { db } from './db';
-import { ensureSchema } from './schema';
-import { canSwapFormat, generateRound } from './scheduler';
-import { EPOCH, type Gender, type Player } from './types';
-import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions } from './repo';
+import { readJson, sendError, sendJson } from './http.js';
+import { db } from './db.js';
+import { ensureSchema } from './schema.js';
+import { canSwapFormat, generateRound } from './scheduler.js';
+import { EPOCH, type Gender, type Player } from './types.js';
+import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions } from './repo.js';
 import {
   loadCheckedInPlayers,
   serializeAllocation,
   syncNightGameCounts,
   syncPairCounts,
-} from './repo2';
-import { latestRound } from './latest';
+} from './repo2.js';
+import { latestRound } from './latest.js';
 
 function parts(req: VercelRequest): string[] {
   const q = req.query.path;

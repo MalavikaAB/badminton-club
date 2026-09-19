@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './db';
-import { ensureSchema } from './schema';
-import { EPOCH, type Gender, type Player } from './types';
+import { db } from './db.js';
+import { ensureSchema } from './schema.js';
+import { EPOCH, type Gender, type Player } from './types.js';
 
 export interface SessionRow { id: string; day: string; location: string; divisions: string[]; }
 

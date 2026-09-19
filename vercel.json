@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/index.ts": {
-      "runtime": "nodejs20.x",
+      "runtime": "@vercel/node@5",
       "maxDuration": 10,
       "includeFiles": "node_modules/postgres/**"
     }
