@@ -1,0 +1,19 @@
+{
+  "name": "badminton-club",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@vercel/node": "^5.3.0",
+    "typescript": "^5.6.3"
+  }
+}
