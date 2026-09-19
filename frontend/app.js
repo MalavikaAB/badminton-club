@@ -26,19 +26,188 @@ function selectedSession() {
   return document.querySelector('#club-session').value;
 }
 
+function sessionLabel(session) {
+  return `${session.day} · Div ${session.divisions.join(' · Div ')} · ${session.location}`;
+}
+
+function optionShortLine(session) {
+  return `${session.day.slice(0, 3).toUpperCase()} · ${session.divisions.map(d => `D${d}`).join(' & ')}`;
+}
+
+function sessionOption(session) {
+  return `<option value="${session.id}">${optionShortLine(session)} — ${escapeHtml(venueShortName(session.location))}</option>`;
+}
+
+const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Sunday'];
+
+const DAY_ACCENTS = {
+  Monday: '#1b6b4b',
+  Tuesday: '#0f766e',
+  Wednesday: '#b45309',
+  Thursday: '#be123c',
+  Sunday: '#4d7c0f'
+};
+
+const VENUE_NAMES = {
+  'location a': 'Sports Hall A',
+  'location b': 'Sports Hall B',
+  'location c': 'Community Hall C',
+};
+
+function venueShortName(location) {
+  if (!location) return 'Main hall';
+  return VENUE_NAMES[String(location).toLowerCase()] || titleCase(String(location));
+}
+
+function titleCase(text) {
+  return String(text).replace(/\w\S*/g, word => word[0].toUpperCase() + word.slice(1).toLowerCase());
+}
+
+function sessionGroups(list) {
+  const byDay = new Map();
+  for (const session of list) {
+    if (!byDay.has(session.day)) byDay.set(session.day, []);
+    byDay.get(session.day).push(session);
+  }
+  const orderedDays = [...byDay.keys()].sort(
+    (a, b) => (DAY_ORDER.indexOf(a) === -1 ? 99 : DAY_ORDER.indexOf(a)) - (DAY_ORDER.indexOf(b) === -1 ? 99 : DAY_ORDER.indexOf(b)));
+  return orderedDays.map(day => {
+    const items = byDay.get(day).slice().sort((a, b) => venueShortName(a.location).localeCompare(venueShortName(b.location)));
+    const options = items.map(sessionOption).join('');
+    return `<optgroup label="${day}">${options}</optgroup>`;
+  }).join('');
+}
+
 function fillDivisionSelects() {
   document.querySelector('#player-division').innerHTML = divisions.map(division => `<option value="${division}">${division === 'Open' ? 'Open / social' : `Div ${division}`}</option>`).join('');
-  const sessionOptions = clubSessions.map(session => `<option value="${session.id}">${session.day} · Divs ${session.divisions.join(', ')} · ${session.location}</option>`).join('');
-  document.querySelector('#club-session').innerHTML = sessionOptions;
-  document.querySelector('#board-session').innerHTML = sessionOptions;
+  const grouped = sessionGroups(clubSessions);
+  document.querySelector('#club-session').innerHTML = grouped;
+  document.querySelector('#board-session').innerHTML = grouped;
+  renderSessionMenus();
+}
+
+function escapeHtml(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function sessionMenuGroups(list) {
+  if (!list.length) return '<p class="session-menu-empty">No sessions scheduled yet.</p>';
+  const groups = new Map();
+  for (const session of list) {
+    if (!groups.has(session.day)) groups.set(session.day, []);
+    groups.get(session.day).push(session);
+  }
+  const orderedDays = [...groups.keys()].sort(
+    (a, b) => (DAY_ORDER.indexOf(a) === -1 ? 99 : DAY_ORDER.indexOf(a)) - (DAY_ORDER.indexOf(b) === -1 ? 99 : DAY_ORDER.indexOf(b)));
+  return orderedDays.map(day => {
+    const items = groups.get(day).slice().sort((a, b) => venueShortName(a.location).localeCompare(venueShortName(b.location)));
+    const options = items.map(session => {
+      const venue = escapeHtml(venueShortName(session.location));
+      const divs = escapeHtml(session.divisions.map(d => `Div ${d}`).join(' · '));
+      const dayLabel = escapeHtml(session.day);
+      return `<button type="button" class="session-option" role="option" data-session-id="${session.id}" aria-selected="false">`
+        + `<span class="session-option-dot" aria-hidden="true"></span>`
+        + `<span class="session-option-body"><span class="session-option-day">${dayLabel}</span>`
+        + `<span class="session-option-sub">${divs} · ${venue}</span></span>`
+        + `<span class="session-option-check" aria-hidden="true">✓</span></button>`;
+    }).join('');
+    return `<p class="session-day-label">${escapeHtml(day)}</p>${options}`;
+  }).join('');
+}
+
+function renderSessionMenus() {
+  document.querySelectorAll('[data-session-picker]').forEach(picker => {
+    const menu = picker.querySelector('.session-menu');
+    if (menu) menu.innerHTML = sessionMenuGroups(clubSessions);
+  });
+  updateSessionTriggers();
+}
+
+function updateSessionTriggers() {
+  ['board-session', 'club-session'].forEach(id => {
+    const select = document.querySelector(`#${id}`);
+    const trigger = document.querySelector(`#${id}-trigger`);
+    if (!select || !trigger) return;
+    const session = clubSessions.find(item => item.id === select.value) || clubSessions[0];
+    if (!session) return;
+    const day = trigger.querySelector('.session-trigger-day');
+    const sub = trigger.querySelector('.session-trigger-sub');
+    if (day) day.textContent = `${session.day} — ${session.divisions.map(d => `Div ${d}`).join(' & ')}`;
+    if (sub) sub.textContent = venueShortName(session.location);
+    const picker = trigger.closest('[data-session-picker]');
+    const menu = picker ? picker.querySelector('.session-menu') : null;
+    if (menu) menu.querySelectorAll('.session-option').forEach(option => {
+      const active = option.dataset.sessionId === select.value;
+      option.classList.toggle('selected', active);
+      option.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+  });
+}
+
+function closeSessionMenus(except) {
+  document.querySelectorAll('[data-session-picker]').forEach(picker => {
+    const menu = picker.querySelector('.session-menu');
+    const trigger = picker.querySelector('.session-trigger');
+    if (!menu || menu === except) return;
+    menu.classList.add('hidden');
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function selectSession(sessionId) {
+  const board = document.querySelector('#board-session');
+  const club = document.querySelector('#club-session');
+  if (board) board.value = sessionId;
+  if (club) club.value = sessionId;
+  closeSessionMenus();
+  updateSessionTriggers();
+  renderScheduleNote();
+  renderCheckins();
+  initializeLatestRound();
+}
+
+function setupSessionDropdowns() {
+  document.querySelectorAll('[data-session-picker]').forEach(picker => {
+    const trigger = picker.querySelector('.session-trigger');
+    const menu = picker.querySelector('.session-menu');
+    if (!trigger || !menu) return;
+    trigger.addEventListener('click', event => {
+      event.stopPropagation();
+      const willOpen = menu.classList.contains('hidden');
+      closeSessionMenus();
+      menu.classList.toggle('hidden', !willOpen);
+      trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    });
+    menu.addEventListener('click', event => {
+      const option = event.target.closest('.session-option');
+      if (!option) return;
+      selectSession(option.dataset.sessionId);
+    });
+  });
+  document.addEventListener('click', () => closeSessionMenus());
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeSessionMenus();
+  });
+}
+
+function renderSessionChips(prefix, session) {
+  const day = document.querySelector(`#${prefix}-session-day`);
+  const divs = document.querySelector(`#${prefix}-session-divs`);
+  const loc = document.querySelector(`#${prefix}-session-loc`);
+  if (!session) return;
+  if (day) day.textContent = session.day;
+  if (divs) divs.textContent = session.divisions.map(d => `Div ${d}`).join(' · ');
+  if (loc) loc.textContent = venueShortName(session.location);
 }
 
 function renderScheduleNote() {
-  const session = clubSessions.find(item => item.id === selectedSession());
-  document.querySelector('#division-schedule').textContent = `${session.day} · Divs ${session.divisions.join(', ')} · ${session.location} · Ending the night clears rounds, waiting, and tonight's game counts.`;
+  const session = clubSessions.find(item => item.id === selectedSession()) || clubSessions[0];
+  if (!session) return;
+  document.querySelector('#division-schedule').textContent = `${sessionLabel(session)} · Ending the night clears rounds, waiting, and tonight's game counts.`;
   document.querySelector('#board-title').textContent = `${session.day} club night · ${session.location}`;
+  renderSessionChips('board', session);
+  renderSessionChips('checkin', session);
 }
-
 function mapPlayers(players) {
   return players.map(player => ({
     id: player.id,
@@ -325,12 +494,17 @@ async function initializeRoster() {
   renderPlayers();
 }
 
-async function initializeSessions() {
-  const response = await fetch(`${apiBaseUrl}/sessions`);
-  if (!response.ok) throw new Error(`Could not load sessions: ${response.status}`);
-  clubSessions = (await response.json()).map(session => ({ ...session, day: session.day[0] + session.day.slice(1).toLowerCase() }));
-  fillDivisionSelects();
-  renderScheduleNote();
+function initializeSessions() {
+  return fetch(`${apiBaseUrl}/sessions`)
+    .then(response => {
+      if (!response.ok) throw new Error(`Could not load sessions: ${response.status}`);
+      return response.json();
+    })
+    .then(data => {
+      clubSessions = data.map(session => ({ ...session, day: session.day[0] + session.day.slice(1).toLowerCase() }));
+      fillDivisionSelects();
+      renderScheduleNote();
+    });
 }
 
 async function initializeLatestRound() {

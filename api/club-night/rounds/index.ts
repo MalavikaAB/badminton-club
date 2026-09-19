@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { randomUUID } from 'node:crypto';
-import { handlePreflight, readJson, sendError, sendJson } from '../../_lib/http.js';
+import { handlePreflight, readJson, sendJson } from '../../_lib/http.js';
 import { db } from '../../_lib/db.js';
 import { ensureSchema } from '../../_lib/schema.js';
 import { generateRound } from '../../_lib/scheduler.js';
@@ -19,9 +19,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const sessionId: string | null = body?.sessionId ?? null;
     const roundNumber = Number(body?.roundNumber ?? 0);
     const separate = body?.separateDivisions === true;
-    const formats = Array.isArray(body?.courtFormats)
-      ? body.courtFormats.map(toGameFormat).filter(Boolean)
-      : [];
+    const formats = (Array.isArray(body?.courtFormats) ? body.courtFormats : [])
+      .map(toGameFormat)
+      .filter((f): f is NonNullable<typeof f> => f !== null);
     if (sessionId) await resetStaleNight(sessionId);
     const nightId = sessionId ? await ensureOpenNight(sessionId) : null;
     let next = roundNumber;
@@ -77,5 +77,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     sendJson(res, 500, { message: e?.message ?? 'Generate round failed' });
   }
 }
-
-void sendError;

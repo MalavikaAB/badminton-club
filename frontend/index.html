@@ -20,7 +20,25 @@
         <p class="muted">Live allocation board <span class="live-dot"></span></p>
       </div>
       <div class="round-status">
-        <label class="board-session-label">BOARD <select id="board-session"></select></label>
+      <div class="session-picker board-session-picker" data-session-picker="board-session">
+        <p class="eyebrow session-label"><span class="session-label-icon" aria-hidden="true">📅</span>SESSION</p>
+        <div class="session-dropdown">
+          <button type="button" class="session-trigger session-trigger--board" id="board-session-trigger" aria-haspopup="listbox" aria-expanded="false">
+            <span class="session-day-badge" aria-hidden="true">–</span>
+            <span class="session-trigger-text"><span class="session-trigger-day">Select a session</span><span class="session-trigger-sub">Choose day &amp; venue</span></span>
+            <span class="session-today-pill hidden" id="board-session-today" aria-hidden="true">Today</span>
+            <span class="session-count-badge" id="board-session-count" aria-hidden="true"></span>
+            <span class="session-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div class="session-menu hidden" role="listbox" aria-label="Club night session"></div>
+        </div>
+        <select id="board-session" class="visually-hidden-select" aria-label="Club night session" tabindex="-1"></select>
+        <div class="session-meta">
+          <span class="session-chip" id="board-session-day">—</span>
+          <span class="session-chip ghost" id="board-session-divs">—</span>
+          <span class="session-chip ghost" id="board-session-loc">—</span>
+        </div>
+      </div>
         <span class="label">ROUND</span>
         <strong id="round-number">00</strong>
         <span class="muted">20 min games</span>
@@ -60,8 +78,24 @@
     <section id="checkin-view" class="view">
       <div class="page-heading"><p class="eyebrow">CLUB NIGHT ROSTER</p><h2>Check in players</h2><p class="muted">Choose the scheduled session and venue, then mark who is present.</p></div>
       <p id="division-schedule" class="schedule-note"></p>
-      <div class="form-row">
-        <label>Session <select id="club-session"></select></label>
+      <div class="form-row session-row">
+        <div class="session-picker wide" data-session-picker="club-session">
+          <div class="session-dropdown">
+            <button type="button" class="session-trigger" id="club-session-trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span class="session-pin" aria-hidden="true">⌖</span>
+              <span class="session-trigger-text"><span class="session-trigger-day">Select a session</span><span class="session-trigger-sub">Choose day &amp; venue</span></span>
+              <span class="session-today-pill hidden" id="club-session-today" aria-hidden="true">Today</span>
+              <span class="session-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="session-menu hidden" role="listbox" aria-label="Scheduled session and venue"></div>
+          </div>
+          <select id="club-session" class="visually-hidden-select" aria-label="Scheduled session and venue" tabindex="-1"></select>
+          <div class="session-meta" id="checkin-session-meta">
+            <span class="session-chip" id="checkin-session-day">—</span>
+            <span class="session-chip ghost" id="checkin-session-divs">—</span>
+            <span class="session-chip ghost" id="checkin-session-loc">—</span>
+          </div>
+        </div>
       </div>
       <div class="checkin-toolbar"><strong id="checkin-count">0 checked in</strong><button class="secondary-button danger-button" id="clear-checkins">End night and clear</button></div>
       <div id="checkin-list" class="player-list"></div>
