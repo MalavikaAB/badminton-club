@@ -2,6 +2,11 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { handlePreflight, sendJson } from './_lib/http';
 import { routeClubNight } from './_lib/router';
 
+export const config = {
+  runtime: 'nodejs',
+  maxDuration: 10,
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   try {
     if (handlePreflight(req, res)) return;

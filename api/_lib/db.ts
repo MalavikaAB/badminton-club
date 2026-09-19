@@ -1,8 +1,12 @@
-import postgresPkg from 'postgres';
+import { createRequire } from 'node:module';
 
-const postgres: typeof postgresPkg = (postgresPkg as any)?.default ?? postgresPkg;
+let client: any = null;
 
-let client: postgres.Sql | null = null;
+function loadPostgres(): (connection: string, options?: object) => any {
+  const require = createRequire(import.meta.url);
+  const mod = require('postgres');
+  return mod?.default ?? mod;
+}
 
 function buildConnectionString(): string {
   const direct =
@@ -33,13 +37,9 @@ function buildConnectionString(): string {
   return `postgresql://${encodeURIComponent(user!)}:${encodeURIComponent(pass!)}@${host}:${port}/${name}?sslmode=require`;
 }
 
-/**
- * Singleton postgres client tuned for Vercel serverless:
- * - max 1 connection per function instance (pooler-friendly)
- * - prepare:false so the Supabase transaction pooler (6543) works
- */
-export function db(): postgres.Sql {
+export function db() {
   if (!client) {
+    const postgres = loadPostgres();
     client = postgres(buildConnectionString(), {
       max: 1,
       idle_timeout: 20,
@@ -50,4 +50,3 @@ export function db(): postgres.Sql {
   }
   return client;
 }
-
