@@ -446,6 +446,7 @@ function announce() {
 }
 renderCourts(); renderWaiting();
 renderViews();
+setupSessionDropdowns();
 document.querySelector('#club-session').addEventListener('change', () => {
   document.querySelector('#board-session').value = selectedSession();
   renderScheduleNote();
