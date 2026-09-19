@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handlePreflight, sendJson } from '../../../../_lib/http.js';
-import { ensureSchema } from '../../../../_lib/schema.js';
-import { openNightId, resetStaleNight } from '../../../../_lib/repo.js';
-import { loadCheckedInPlayers, serializeAllocation } from '../../../../_lib/repo2.js';
-import { latestRound } from '../../../../_lib/latest.js';
+import { handlePreflight, sendJson } from '../../../../_lib/http';
+import { ensureSchema } from '../../../../_lib/schema';
+import { openNightId, resetStaleNight } from '../../../../_lib/repo';
+import { loadCheckedInPlayers, serializeAllocation } from '../../../../_lib/repo2';
+import { latestRound } from '../../../../_lib/latest';
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (handlePreflight(req, res)) return;

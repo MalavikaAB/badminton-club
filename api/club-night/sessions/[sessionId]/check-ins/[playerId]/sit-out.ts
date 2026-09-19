@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handlePreflight, sendJson } from '../../../../../_lib/http.js';
-import { db } from '../../../../../_lib/db.js';
-import { ensureSchema } from '../../../../../_lib/schema.js';
+import { handlePreflight, sendJson } from '../../../../../_lib/http';
+import { db } from '../../../../../_lib/db';
+import { ensureSchema } from '../../../../../_lib/schema';
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (handlePreflight(req, res)) return;

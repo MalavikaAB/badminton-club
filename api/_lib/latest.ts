@@ -1,6 +1,6 @@
-import { db } from './db.js';
-import { EPOCH, type Gender, type Player, type RoundAllocation } from './types.js';
-import { openNightId } from './repo.js';
+import { db } from './db';
+import { EPOCH, type Gender, type Player, type RoundAllocation } from './types';
+import { openNightId } from './repo';
 
 export async function latestRound(sessionId: string): Promise<RoundAllocation> {
   const sql = db();
@@ -52,3 +52,4 @@ export async function latestRound(sessionId: string): Promise<RoundAllocation> {
     });
   return { roundNumber, courts, waiting: [] };
 }
+

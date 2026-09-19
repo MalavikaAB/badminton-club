@@ -1,5 +1,5 @@
-import { db } from './db.js';
-import { EPOCH, type GameFormat, type Gender, type Player, type RoundAllocation } from './types.js';
+import { db } from './db';
+import { EPOCH, type GameFormat, type Gender, type Player, type RoundAllocation } from './types';
 
 export async function syncNightGameCounts(sessionId: string, nightId: string): Promise<void> {
   const sql = db();
@@ -78,3 +78,4 @@ export function toGameFormat(v: unknown): GameFormat | null {
   if (v === 'MENS_DOUBLES' || v === 'WOMENS_DOUBLES' || v === 'MIXED_DOUBLES' || v === 'OPEN_DOUBLES') return v;
   return null;
 }
+

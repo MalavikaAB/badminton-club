@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './db.js';
-import { ensureSchema } from './schema.js';
-import { EPOCH, type Gender, type Player } from './types.js';
+import { db } from './db';
+import { ensureSchema } from './schema';
+import { EPOCH, type Gender, type Player } from './types';
 
 export interface SessionRow { id: string; day: string; location: string; divisions: string[]; }
 
@@ -62,3 +62,4 @@ export async function endNight(sessionId: string): Promise<void> {
   await sql`delete from venue_nights where session_id = ${sessionId}`;
   await sql`delete from venue_check_ins where session_id = ${sessionId}`;
 }
+

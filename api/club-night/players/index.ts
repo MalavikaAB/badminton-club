@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { randomUUID } from 'node:crypto';
-import { handlePreflight, readJson, sendError, sendJson } from '../../_lib/http.js';
-import { db } from '../../_lib/db.js';
-import { ensureSchema } from '../../_lib/schema.js';
+import { handlePreflight, readJson, sendError, sendJson } from '../../_lib/http';
+import { db } from '../../_lib/db';
+import { ensureSchema } from '../../_lib/schema';
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (handlePreflight(req, res)) return;
@@ -36,3 +36,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     sendJson(res, 500, { message: e?.message ?? 'Players request failed' });
   }
 }
+

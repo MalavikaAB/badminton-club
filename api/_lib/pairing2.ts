@@ -1,4 +1,4 @@
-import type { CourtAssignment, GameFormat, Player } from './types.js';
+import type { CourtAssignment, GameFormat, Player } from './types';
 const PW = 2.0; const OW = 1.0;
 export interface Split { teamA: Player[]; teamB: Player[]; cost: number; }
 export function pairWith(p: Player, o: string): number { return p.pairCount[o] ?? 0; }
@@ -83,3 +83,4 @@ export function buildCourt(fmt: GameFormat, men: Player[], women: Player[]): Cou
   if (fmt === 'WOMENS_DOUBLES') return buildCourtFromPool(fmt, women, men, women);
   return buildMixedCourt(men, women);
 }
+

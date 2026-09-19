@@ -18,7 +18,7 @@ export function handlePreflight(req: VercelRequest, res: VercelResponse): boolea
 
 export function sendJson(res: VercelResponse, status: number, body: unknown): void {
   applyCors(res);
-  res.status(status).json(body);
+  res.status(status)on(body);
 }
 
 /**
@@ -42,3 +42,4 @@ export async function readJson(req: VercelRequest): Promise<any> {
   }
   return {};
 }
+

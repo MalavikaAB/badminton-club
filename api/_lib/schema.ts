@@ -1,4 +1,4 @@
-import { db } from './db.js';
+import { db } from './db';
 
 let ensured = false;
 
@@ -100,3 +100,4 @@ export async function ensureSchema(): Promise<void> {
   await sql.unsafe(SCHEMA_SQL);
   ensured = true;
 }
+

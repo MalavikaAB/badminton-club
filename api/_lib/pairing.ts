@@ -1,5 +1,5 @@
-import type { CourtAssignment, GameFormat, Player } from './types.js';
-import { buildCourt as buildCourt2, localSearch } from './pairing2.js';
+import type { CourtAssignment, GameFormat, Player } from './types';
+import { buildCourt as buildCourt2, localSearch } from './pairing2';
 
 interface CourtMix { md: number; wd: number; xd: number; open: number; }
 
@@ -79,3 +79,4 @@ export function removeLastOfGender(pool: Player[], gender: Player['gender']): Pl
 export function buildCourt(fmt: GameFormat, a: Player[], b: Player[]): CourtAssignment {
   return buildCourt2(fmt, a, b);
 }
+

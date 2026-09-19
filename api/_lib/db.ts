@@ -32,7 +32,7 @@ function buildConnectionString(): string {
 }
 
 /**
- * Singleton postgres.js client tuned for Vercel serverless:
+ * Singleton postgres client tuned for Vercel serverless:
  * - max 1 connection per function instance (pooler-friendly)
  * - prepare:false so the Supabase transaction pooler (6543) works
  */
@@ -48,3 +48,4 @@ export function db(): postgres.Sql {
   }
   return client;
 }
+

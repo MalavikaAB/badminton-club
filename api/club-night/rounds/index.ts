@@ -1,13 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { randomUUID } from 'node:crypto';
-import { handlePreflight, readJson, sendJson } from '../../_lib/http.js';
-import { db } from '../../_lib/db.js';
-import { ensureSchema } from '../../_lib/schema.js';
-import { generateRound } from '../../_lib/scheduler.js';
-import { EPOCH, type Gender, type Player } from '../../_lib/types.js';
-import { ensureOpenNight, openNightId, resetStaleNight } from '../../_lib/repo.js';
-import { loadCheckedInPlayers, serializeAllocation, syncNightGameCounts, syncPairCounts, toGameFormat } from '../../_lib/repo2.js';
-import { latestRound } from '../../_lib/latest.js';
+import { handlePreflight, readJson, sendJson } from '../../_lib/http';
+import { db } from '../../_lib/db';
+import { ensureSchema } from '../../_lib/schema';
+import { generateRound } from '../../_lib/scheduler';
+import { EPOCH, type Gender, type Player } from '../../_lib/types';
+import { ensureOpenNight, openNightId, resetStaleNight } from '../../_lib/repo';
+import { loadCheckedInPlayers, serializeAllocation, syncNightGameCounts, syncPairCounts, toGameFormat } from '../../_lib/repo2';
+import { latestRound } from '../../_lib/latest';
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (handlePreflight(req, res)) return;
@@ -77,3 +77,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     sendJson(res, 500, { message: e?.message ?? 'Generate round failed' });
   }
 }
+

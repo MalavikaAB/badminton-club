@@ -1,5 +1,5 @@
-import type { CourtAssignment, GameFormat, Player, RoundAllocation } from './types.js';
-import { buildAllCourts } from './pairing.js';
+import type { CourtAssignment, GameFormat, Player, RoundAllocation } from './types';
+import { buildAllCourts } from './pairing';
 
 const DEFAULT_COURTS = 6;
 
@@ -94,3 +94,4 @@ export function canSwapFormat(format: GameFormat, outgoing: Player['gender'], in
   if (format === 'OPEN_DOUBLES') return true;
   return outgoing === incoming;
 }
+

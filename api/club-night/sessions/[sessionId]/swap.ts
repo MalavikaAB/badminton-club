@@ -1,11 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handlePreflight, readJson, sendJson } from '../../../../_lib/http.js';
-import { db } from '../../../../_lib/db.js';
-import { ensureSchema } from '../../../../_lib/schema.js';
-import { canSwapFormat } from '../../../../_lib/scheduler.js';
-import { openNightId, resetStaleNight } from '../../../../_lib/repo.js';
-import { loadCheckedInPlayers, serializeAllocation, syncNightGameCounts, syncPairCounts } from '../../../../_lib/repo2.js';
-import { latestRound } from '../../../../_lib/latest.js';
+import { handlePreflight, readJson, sendJson } from '../../../../_lib/http';
+import { db } from '../../../../_lib/db';
+import { ensureSchema } from '../../../../_lib/schema';
+import { canSwapFormat } from '../../../../_lib/scheduler';
+import { openNightId, resetStaleNight } from '../../../../_lib/repo';
+import { loadCheckedInPlayers, serializeAllocation, syncNightGameCounts, syncPairCounts } from '../../../../_lib/repo2';
+import { latestRound } from '../../../../_lib/latest';
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (handlePreflight(req, res)) return;
