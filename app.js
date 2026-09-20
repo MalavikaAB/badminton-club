@@ -252,10 +252,40 @@ async function renderCheckins() {
   document.querySelector('#checkin-count').textContent = `${checkedIn.size} checked in`;
   updateGenerateButton();
   document.querySelectorAll('[data-checkin-id]').forEach(input => input.addEventListener('change', async event => {
-    const method = event.target.checked ? 'POST' : 'DELETE';
-    await fetch(`${apiBaseUrl}/sessions/${session}/check-ins/${event.target.dataset.checkinId}`, { method });
-    renderCheckins();
+    const box = event.target;
+    const method = box.checked ? 'POST' : 'DELETE';
+    // Optimistic toggle: keep the checkbox exactly as the user left it and
+    // fire the request in the background, so ticking feels instant and the
+    // box never flickers while a re-render is in flight. The server stamps
+    // checked_in_at with now() per player, so timing data is unaffected.
+    if (box.checked) checkedInCount++; else checkedInCount--;
+    document.querySelector('#checkin-count').textContent = `${checkedInCount} checked in`;
+    updateGenerateButton();
+    box.disabled = true;
+    let ok = false;
+    try {
+      const response = await fetch(`${apiBaseUrl}/sessions/${session}/check-ins/${box.dataset.checkinId}`, { method });
+      ok = response.ok;
+    } catch { ok = false; }
+    box.disabled = false;
+    if (!ok) {
+      box.checked = !box.checked;
+      if (box.checked) checkedInCount++; else checkedInCount--;
+      document.querySelector('#checkin-count').textContent = `${checkedInCount} checked in`;
+      updateGenerateButton();
+      window.alert('Could not save that check-in — check your connection and try again.');
+      return;
+    }
+    scheduleCheckinSync();
   }));
+}
+
+// Debounced re-sync: after a burst of ticks settles, quietly reload the
+// server's view so counts and sit-out flags stay truthful across devices.
+let checkinSyncTimer = null;
+function scheduleCheckinSync() {
+  clearTimeout(checkinSyncTimer);
+  checkinSyncTimer = setTimeout(() => { renderCheckins().catch(() => {}); }, 1500);
 }
 
 async function setSitOut(playerId, alreadySittingOut) {

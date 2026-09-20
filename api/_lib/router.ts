@@ -183,16 +183,20 @@ async function handleCheckIns(
   if (rest.length === 1) {
     const playerId = rest[0];
     if (method === 'POST') {
-      await resetStaleNight(sessionId);
+      // Ticking a checkbox must stay fast, so this is 3 round-trips max.
+      // (Stale-night reset is handled by the GET check-ins and round
+      // generation paths, which also consult the clock.)
       await sql`insert into venue_check_ins (session_id, player_id, sit_out_rounds)
         values (${sessionId}, ${playerId}, 0)
         on conflict (session_id, player_id) do update set checked_in_at = now()`;
-      await sql`update players set rounds_waiting = 0 where id = ${playerId}`;
-      const min = await sql`select coalesce(min(games_played), 0) as m from players p
-        join venue_check_ins ci on ci.player_id = p.id
-        where ci.session_id = ${sessionId} and p.active = true`;
-      const m = Number((min as any[])[0]?.m ?? 0);
-      await sql`update players set games_played = ${m} where id = ${playerId} and games_played < ${m}`;
+      await sql`with m as (
+          select coalesce(min(g.games_played), 0) as m
+          from players g join venue_check_ins ci on ci.player_id = g.id
+          where ci.session_id = ${sessionId} and g.active = true
+        )
+        update players set rounds_waiting = 0,
+          games_played = (select case when players.games_played < m.m then m.m else players.games_played end from m)
+        where id = ${playerId}`;
       await ensureOpenNight(sessionId);
       sendJson(res, 200, { ok: true });
       return;
