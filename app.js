@@ -28,18 +28,20 @@ function showLogin(message = '') {
   document.querySelector('#login-password').value = '';
   document.querySelector('#login-username').focus();
 }
-document.querySelector('#login-form').addEventListener('submit', event => {
+function handleDemoLogin(event) {
   event.preventDefault();
   const username = document.querySelector('#login-username').value.trim().toLowerCase();
   const password = document.querySelector('#login-password').value;
   if (username !== DEMO_USERNAME || password !== DEMO_PASSWORD) {
     showLogin('Incorrect username or password. Try the demo credentials below.');
-    return;
+    return false;
   }
   try { sessionStorage.setItem(SESSION_KEY, username); } catch { /* session-only demo auth */ }
   document.querySelector('#login-error').hidden = true;
   startAuthenticatedApp();
-});
+  return false;
+}
+document.querySelector('#login-form').addEventListener('submit', handleDemoLogin);
 
 
 async function startAuthenticatedApp() {
