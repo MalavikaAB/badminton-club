@@ -24,8 +24,18 @@ export function generateRound(
   const queue = ordered.slice(courtCount * 4);
   adjustGenderParity(selected, queue);
   const courts = renumberCourts(buildAllCourts(selected, courtCount));
-  const waiting = [...resting, ...queue].sort(comparePriority);
-  return { roundNumber, courts, waiting };
+  return { roundNumber, courts, waiting: waitingAfter(courts, ordered, resting) };
+}
+
+/**
+ * Everyone not on a court this round, ordered by the same priority used for
+ * selection. Deriving the waiting list from the finished courts (instead of
+ * from the unselected slice) means that if a court could not be fielded, its
+ * players stay in the queue rather than disappearing from the round.
+ */
+function waitingAfter(courts: CourtAssignment[], ordered: Player[], resting: Player[]): Player[] {
+  const assigned = new Set(courts.flatMap((c) => c.players.map((p) => p.id)));
+  return [...resting, ...ordered.filter((p) => !assigned.has(p.id))].sort(comparePriority);
 }
 
 function generateSeparatedRound(
@@ -40,32 +50,58 @@ function generateSeparatedRound(
     if (!byDiv.has(p.division)) byDiv.set(p.division, []);
     byDiv.get(p.division)!.push(p);
   }
-  const groups = [...byDiv.entries()]
-    .map(([division, pool]) => ({ division, pool, courts: 0, left: pool.length }));
-  // Hand courts out one at a time to the division with the most players still
-  // unassigned, but never exceed courtCount in total, and only while the
-  // division can still field a full court of four.
-  let remaining = courtCount;
-  while (remaining > 0) {
-    const candidate = groups
-      .filter((g) => g.left >= 4)
-      .sort((a, b) => b.left - a.left || a.division.localeCompare(b.division))[0];
-    if (!candidate) break;
-    candidate.courts++;
-    candidate.left -= 4;
-    remaining--;
+  const groups = [...byDiv.entries()].map(([division, pool]) => ({ division, pool }));
+  const waitRank = new Map(ordered.map((p, i) => [p.id, i]));
+  // Lower rank = has waited longer (ordered is already priority-sorted).
+  const minRank = (g: { pool: Player[] }) => Math.min(...g.pool.map((p) => waitRank.get(p.id) ?? 0));
+  // A division can only ever fill one court per four players it has.
+  const capacityOf = (g: { pool: Player[] }) => Math.floor(g.pool.length / 4);
+
+  // Phase A — allocate courts in proportion to each division's share of the
+  // active roster using largest-remainder rounding, then redistribute any court
+  // a division cannot field to the divisions with the longest-waiting players.
+  const courtsByDiv = new Map<string, number>();
+  const remainders = groups.map((g) => {
+    const exact = (courtCount * g.pool.length) / ordered.length;
+    const base = Math.floor(exact);
+    courtsByDiv.set(g.division, base);
+    return { g, rem: exact - base };
+  });
+  let spare = courtCount - [...courtsByDiv.values()].reduce((n, c) => n + c, 0);
+  const byRemainder = [...remainders].sort((a, b) =>
+    b.rem - a.rem || minRank(a.g) - minRank(b.g) || a.g.division.localeCompare(b.g.division));
+  for (const { g } of byRemainder) {
+    if (spare <= 0) break;
+    courtsByDiv.set(g.division, (courtsByDiv.get(g.division) ?? 0) + 1);
+    spare--;
   }
+  for (const g of groups) {
+    courtsByDiv.set(g.division, Math.min(courtsByDiv.get(g.division) ?? 0, capacityOf(g)));
+  }
+  let unfilled = courtCount - [...courtsByDiv.values()].reduce((n, c) => n + c, 0);
+  while (unfilled > 0) {
+    const candidate = groups
+      .filter((g) => (courtsByDiv.get(g.division) ?? 0) < capacityOf(g))
+      .sort((a, b) =>
+        (b.pool.length - 4 * (courtsByDiv.get(b.division) ?? 0))
+        - (a.pool.length - 4 * (courtsByDiv.get(a.division) ?? 0))
+        || minRank(a) - minRank(b) || a.division.localeCompare(b.division))[0];
+    if (!candidate) break; // Nobody can field another court: leave the court idle.
+    courtsByDiv.set(candidate.division, (courtsByDiv.get(candidate.division) ?? 0) + 1);
+    unfilled--;
+  }
+
+  // Phase B — fill every allocated court from a single division.
   const all: CourtAssignment[] = [];
   for (const g of groups) {
-    if (g.courts <= 0) continue;
-    const selected = g.pool.slice(0, g.courts * 4);
-    const queue = g.pool.slice(g.courts * 4);
+    const n = courtsByDiv.get(g.division) ?? 0;
+    if (n <= 0) continue;
+    const selected = g.pool.slice(0, n * 4);
+    const queue = g.pool.slice(n * 4);
     adjustGenderParity(selected, queue);
-    all.push(...buildAllCourts(selected, g.courts));
+    all.push(...buildAllCourts(selected, n));
   }
-  const assigned = new Set(all.flatMap((c) => c.players.map((p) => p.id)));
-  const waitingPlayers = ordered.filter((p) => !assigned.has(p.id));
-  return { roundNumber, courts: renumberCourts(all), waiting: [...resting, ...waitingPlayers].sort(comparePriority) };
+  return { roundNumber, courts: renumberCourts(all), waiting: waitingAfter(all, ordered, resting) };
 }
 
 export function renumberCourts(courts: CourtAssignment[]): CourtAssignment[] {

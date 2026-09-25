@@ -342,6 +342,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
       checkedInAt: p.checkedInAt ?? EPOCH, gamesPlayed: Number(p.gamesPlayed ?? 0),
       roundsWaiting: Number(p.roundsWaiting ?? 0),
       sittingOut: p.sittingOut === true, pairCount: {}, oppCount: {},
+      lastPartner: null, lastOpponents: [],
     }));
   } else {
     players = await loadCheckedInPlayers(sessionId, nightId);

@@ -18,6 +18,18 @@ export interface Player {
   sittingOut: boolean;
   pairCount: Record<string, number>;
   oppCount: Record<string, number>;
+  /**
+   * Partner from this player's most recent round of the night, or null when
+   * they have not played yet. Used to hard-block a repeated partnership from
+   * one round to the next.
+   */
+  lastPartner: string | null;
+  /**
+   * Opponents faced in this player's most recent round of the night. Used to
+   * discourage an immediate re-match, which takes priority over the night-total
+   * repeat counts but yields to the last-partner block.
+   */
+  lastOpponents: string[];
 }
 
 export interface CourtAssignment {
@@ -45,6 +57,8 @@ export function makePlayer(
   sittingOut = false,
   pairCount: Record<string, number> = {},
   oppCount: Record<string, number> = {},
+  lastPartner: string | null = null,
+  lastOpponents: string[] = [],
 ): Player {
   return {
     id,
@@ -57,6 +71,8 @@ export function makePlayer(
     sittingOut,
     pairCount: { ...pairCount },
     oppCount: { ...oppCount },
+    lastPartner,
+    lastOpponents: [...lastOpponents],
   };
 }
 

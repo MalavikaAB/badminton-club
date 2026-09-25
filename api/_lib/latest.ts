@@ -31,7 +31,8 @@ export async function latestRound(sessionId: string): Promise<RoundAllocation> {
     const p: Player = { id: pid, name: r.name, gender: r.gender as Gender, division: '',
       checkedInAt: at, gamesPlayed: Number(r.games_played ?? 0),
       roundsWaiting: Number(r.rounds_waiting ?? 0),
-      sittingOut: Number(r.sit_out_rounds ?? 0) > 0, pairCount: {}, oppCount: {} };
+      sittingOut: Number(r.sit_out_rounds ?? 0) > 0, pairCount: {}, oppCount: {},
+      lastPartner: null, lastOpponents: [] };
     const cn = Number(r.court_number);
     if (!byCourt.has(cn)) byCourt.set(cn, []);
     byCourt.get(cn)!.push(p);
@@ -50,6 +51,17 @@ export async function latestRound(sessionId: string): Promise<RoundAllocation> {
       }
       return { courtNumber: cn, format: fmtByCourt.get(cn), players: ps, teamA: ps.slice(0, 2), teamB: ps.slice(2, 4) };
     });
+  // The round being loaded is the most recent one, so its teams are exactly the
+  // "last round" relationships the pairing step needs to avoid repeating.
+  for (const c of courts) {
+    const sides: Array<[Player[], Player[]]> = [[c.teamA, c.teamB], [c.teamB, c.teamA]];
+    for (const [team, other] of sides) {
+      for (const p of team) {
+        p.lastPartner = team.find((q) => q.id !== p.id)?.id ?? null;
+        p.lastOpponents = other.map((q) => q.id);
+      }
+    }
+  }
   return { roundNumber, courts, waiting: [] };
 }
 

@@ -28,12 +28,28 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
   const sql = db();
   const rows = await sql`select p.id, p.name, p.gender, p.division, p.games_played, p.rounds_waiting,
     ci.checked_in_at, coalesce(ci.sit_out_rounds, 0) as sit_out_rounds,
-    coalesce(pc.pairs, '{}') as pairs, coalesce(pc.opps, '{}') as opps
+    coalesce(pc.pairs, '{}') as pairs, coalesce(pc.opps, '{}') as opps,
+    coalesce(lp.partner, '') as last_partner, coalesce(lp.opps, '{}') as last_opps
     from venue_check_ins ci
     join players p on p.id = ci.player_id
     left join lateral (select coalesce(array_agg(pc2.other_id || ':' || pc2.pair_count), '{}') as pairs,
     coalesce(array_agg(pc2.other_id || ':' || pc2.opp_count), '{}') as opps
     from venue_pair_counts pc2 where pc2.night_id = ${nightId} and pc2.player_id = p.id) pc on true
+    left join lateral (select
+    (select o.player_id::text from venue_round_players o
+    where o.round_id = rp.round_id and o.court_number is not distinct from rp.court_number
+    and o.team is not distinct from rp.team and o.player_id <> rp.player_id
+    order by o.player_id limit 1) as partner,
+    (select array_agg(o.player_id::text) from venue_round_players o
+    where o.round_id = rp.round_id and o.court_number is not distinct from rp.court_number
+    and o.team is distinct from rp.team) as opps
+    from venue_round_players rp
+    where rp.player_id = p.id
+    and rp.round_id = (select r.id from venue_round_players own_rp
+    join venue_rounds r on r.id = own_rp.round_id
+    where own_rp.player_id = p.id and r.night_id = ${nightId}
+    order by r.round_number desc limit 1)
+    limit 1) lp on true
     where ci.session_id = ${sessionId} and p.active = true
     order by ci.checked_in_at`;
   return (rows as any[]).map((r) => toPlayer(r));
@@ -48,6 +64,10 @@ function parseCounts(entries: string[]): Record<string, number> {
   return out;
 }
 
+function parseIds(entries: string[]): string[] {
+  return (entries ?? []).map((e) => String(e)).filter((e) => e.length > 0);
+}
+
 function toPlayer(r: any): Player {
   const checkedInAt = r.checked_in_at ? new Date(r.checked_in_at).toISOString() : EPOCH;
   return {
@@ -57,13 +77,16 @@ function toPlayer(r: any): Player {
     roundsWaiting: Number(r.rounds_waiting ?? 0),
     sittingOut: Number(r.sit_out_rounds ?? 0) > 0,
     pairCount: parseCounts(r.pairs), oppCount: parseCounts(r.opps),
+    lastPartner: r.last_partner ? String(r.last_partner) : null,
+    lastOpponents: parseIds(r.last_opps),
   };
 }
 
 export function serializeAllocation(a: RoundAllocation): any {
   const ser = (p: Player) => ({ id: p.id, name: p.name, gender: p.gender,
     checkedInAt: p.checkedInAt, gamesPlayed: p.gamesPlayed,
-    roundsWaiting: p.roundsWaiting, sittingOut: p.sittingOut });
+    roundsWaiting: p.roundsWaiting, sittingOut: p.sittingOut,
+    lastPartner: p.lastPartner, lastOpponents: p.lastOpponents });
   return { roundNumber: a.roundNumber,
     courts: a.courts.map((c) => ({ courtNumber: c.courtNumber, format: c.format,
       players: c.players.map(ser), teamA: c.teamA.map(ser), teamB: c.teamB.map(ser) })),

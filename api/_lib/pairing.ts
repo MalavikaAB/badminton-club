@@ -1,79 +1,42 @@
 import type { CourtAssignment, GameFormat, Player } from './types.js';
 import { buildCourt as buildCourt2, localSearch } from './pairing2.js';
 
-interface CourtMix { md: number; wd: number; xd: number; open: number; }
-
-export function solveMix(courtCount: number, men: number, women: number): CourtMix | null {
-  const cands: CourtMix[] = [];
-  for (let c = 0; c <= courtCount; c++) {
-    if (2 * c > men || 2 * c > women) continue;
-    const rm = men - 2 * c; const rw = women - 2 * c;
-    if (rm % 4 !== 0 || rw % 4 !== 0) continue;
-    const a = rm / 4; const b = rw / 4;
-    if (a < 0 || b < 0 || a + b + c !== courtCount) continue;
-    cands.push({ md: a, wd: b, xd: c, open: 0 });
-  }
-  if (!cands.length) return null;
-  // Prefer men's/women's doubles over mixed: fewest mixed courts first,
-  // then the most men's doubles as a deterministic tie-break.
-  return cands.sort((x, y) => x.xd - y.xd || y.md - x.md)[0];
-}
-
+/**
+ * Fills the round court by court. For every court the highest-priority format
+ * that the remaining pool can still field is used — men's doubles, then women's
+ * doubles, then mixed doubles, then open doubles — and the pool is re-evaluated
+ * after each court. A court therefore only degrades to open doubles when no
+ * typed draw is possible with the players that are left, and a court that
+ * cannot be fielded at all is simply left idle instead of pushing the whole
+ * round into open doubles.
+ */
 export function buildAllCourts(selected: Player[], courtCount: number): CourtAssignment[] {
-  let men = selected.filter((p) => p.gender === 'MALE').length;
-  let women = selected.length - men;
-  const mix = solveMix(courtCount, men, women);
-  if (mix) return pairTypedCourts(selected, mix);
-  const typedPool = [...selected]; const openPool: Player[] = [];
-  if (women >= 3) {
-    openPool.push(removeLastOfGender(typedPool, 'MALE'));
-    for (let i = 0; i < 3; i++) openPool.push(removeLastOfGender(typedPool, 'FEMALE'));
-  } else if (women >= 1) {
-    for (let i = 0; i < 3; i++) openPool.push(removeLastOfGender(typedPool, 'MALE'));
-    openPool.push(removeLastOfGender(typedPool, 'FEMALE'));
-  } else return pairOpenCourts(selected, courtCount);
-  const typedCourts = courtCount - 1;
-  men = typedPool.filter((p) => p.gender === 'MALE').length;
-  women = typedPool.length - men;
-  const retry = solveMix(typedCourts, men, women);
-  if (retry) {
-    const typed = pairTypedCourts(typedPool, retry);
-    const open = pairOpenCourts(openPool, 1);
-    const combined = combineAndRenumber(typed, open);
-    localSearch(combined);
-    return combined;
-  }
-  return pairOpenCourts(selected, courtCount);
-}
-
-export function pairTypedCourts(players: Player[], mix: CourtMix): CourtAssignment[] {
-  const menPool = players.filter((p) => p.gender === 'MALE');
-  const womenPool = players.filter((p) => p.gender === 'FEMALE');
+  const menPool = selected.filter((p) => p.gender === 'MALE');
+  const womenPool = selected.filter((p) => p.gender === 'FEMALE');
   const courts: CourtAssignment[] = [];
-  for (let i = 0; i < mix.md; i++) courts.push(buildCourt2('MENS_DOUBLES', menPool, womenPool));
-  for (let i = 0; i < mix.wd; i++) courts.push(buildCourt2('WOMENS_DOUBLES', menPool, womenPool));
-  for (let i = 0; i < mix.xd; i++) courts.push(buildCourt2('MIXED_DOUBLES', menPool, womenPool));
+  for (let i = 0; i < courtCount; i++) {
+    const format = nextFormat(menPool.length, womenPool.length);
+    if (!format) break;
+    courts.push(buildCourt2(format, menPool, womenPool));
+  }
   localSearch(courts);
   return courts;
 }
 
-export function pairOpenCourts(players: Player[], n: number): CourtAssignment[] {
-  const pool = [...players]; const courts: CourtAssignment[] = [];
-  for (let i = 0; i < n; i++) courts.push(buildCourt2('OPEN_DOUBLES', pool, []));
-  localSearch(courts);
-  return courts;
-}
-
-export function combineAndRenumber(a: CourtAssignment[], b: CourtAssignment[]): CourtAssignment[] {
-  const all = [...a, ...b]; const out: CourtAssignment[] = []; let n = 1;
-  const order: GameFormat[] = ['MENS_DOUBLES', 'WOMENS_DOUBLES', 'MIXED_DOUBLES', 'OPEN_DOUBLES'];
-  for (const f of order) for (const c of all) if (c.format === f) out.push({ ...c, courtNumber: n++ });
-  return out;
-}
-
-export function removeLastOfGender(pool: Player[], gender: Player['gender']): Player {
-  for (let i = pool.length - 1; i >= 0; i--) if (pool[i].gender === gender) return pool.splice(i, 1)[0];
-  throw new Error('No player of gender ' + gender);
+/**
+ * Priority order of the format template for the players still waiting: men's
+ * doubles, women's doubles, mixed doubles, then open doubles. When both
+ * genders could field a same-gender court the larger one is used first, which
+ * keeps the play rate balanced across genders; a combination that has no typed
+ * draw left (for example one man and three women) falls back to open doubles.
+ */
+export function nextFormat(men: number, women: number): GameFormat | null {
+  if (men + women < 4) return null;
+  if (men >= 4 && men >= women) return 'MENS_DOUBLES';
+  if (women >= 4) return 'WOMENS_DOUBLES';
+  if (men >= 4) return 'MENS_DOUBLES';
+  if (men >= 2 && women >= 2) return 'MIXED_DOUBLES';
+  return 'OPEN_DOUBLES';
 }
 
 export function buildCourt(fmt: GameFormat, a: Player[], b: Player[]): CourtAssignment {
