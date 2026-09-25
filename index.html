@@ -28,6 +28,7 @@
       <button class="tab active" data-view="board-view">Board</button>
       <button class="tab" data-view="checkin-view">Check in</button>
       <button class="tab" data-view="players-view">Players</button>
+      <button class="tab" data-view="venues-view">Venues</button>
       <button type="button" class="secondary-button nav-logout" data-logout>Log out</button>
     </nav>
     <header class="topbar">
@@ -132,6 +133,19 @@
       </form>
       <div id="players-list" class="directory-list"></div>
     </section>
+
+    <section id="venues-view" class="view">
+      <div class="page-heading"><p class="eyebrow">SESSION MANAGER</p><h2>Venues &amp; sessions</h2><p class="muted">Rename a venue, set courts, change weekday and divisions, or add / deactivate a session night.</p></div>
+      <p id="venues-error" class="login-error" role="alert" hidden></p>
+      <form id="venue-form" class="player-form venue-form">
+        <label>Weekday <select id="venue-weekday"><option value="MONDAY">Monday</option><option value="TUESDAY">Tuesday</option><option value="WEDNESDAY">Wednesday</option><option value="THURSDAY">Thursday</option><option value="SUNDAY">Sunday</option></select></label>
+        <label>Venue <input id="venue-location" required placeholder="e.g. Main hall" maxlength="80"></label>
+        <label>Courts <input id="venue-courts" type="number" min="1" max="20" value="6" required></label>
+        <label>Divisions <input id="venue-divisions" placeholder="e.g. 4, 5, 6 or Open"></label>
+        <button class="primary-button" type="submit">Add session <span>+</span></button>
+      </form>
+      <div id="venues-list" class="directory-list venues-list"></div>
+    </section>
   </main>
   <div id="swap-modal" class="modal hidden" role="dialog" aria-labelledby="swap-title">
     <div class="modal-card">
@@ -142,6 +156,6 @@
       <button class="secondary-button" id="swap-cancel">Cancel</button>
     </div>
   </div>
-  <script src="app.js?v=20260925-fix-sessions"></script>
+  <script src="app.js?v=20260925-venues-tab"></script>
 </body>
 </html>

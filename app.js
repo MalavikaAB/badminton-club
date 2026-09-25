@@ -60,6 +60,7 @@ async function startAuthenticatedApp() {
 
 const divisions = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', 'Open'];
 let clubSessions = [];
+let allSessions = [];
 let roster = [];
 let rounds = [];
 let waiting = [];
@@ -118,6 +119,26 @@ function titleCase(text) {
   return String(text).replace(/\w\S*/g, word => word[0].toUpperCase() + word.slice(1).toLowerCase());
 }
 
+function normaliseSession(raw) {
+  return {
+    ...raw,
+    day: raw.day ? raw.day[0] + raw.day.slice(1).toLowerCase() : '',
+    weekday: String(raw.day || '').toUpperCase(),
+    divisions: Array.isArray(raw.divisions) ? raw.divisions : [],
+    courts: Number(raw.courts ?? 6) || 6,
+    active: raw.active !== false
+  };
+}
+
+function parseDivisionsInput(text) {
+  return [...new Set(String(text || '').split(/[,\s;]+/).map(part => part.trim()).filter(Boolean))].slice(0, 20);
+}
+
+function weekdayOptions(selected) {
+  return ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'SUNDAY'].map(day =>
+    `<option value="${day}" ${day === selected ? 'selected' : ''}>${day[0] + day.slice(1).toLowerCase()}</option>`).join('');
+}
+
 function sessionGroups(list) {
   const byDay = new Map();
   for (const session of list) {
@@ -135,16 +156,18 @@ function sessionGroups(list) {
 
 function fillDivisionSelects() {
   document.querySelector('#player-division').innerHTML = divisions.map(division => `<option value="${division}">${division === 'Open' ? 'Open / social' : `Div ${division}`}</option>`).join('');
+  const club = document.querySelector('#club-session');
+  const board = document.querySelector('#board-session');
+  const previousClub = club ? club.value : '';
+  const previousBoard = board ? board.value : '';
   const grouped = sessionGroups(clubSessions);
   document.querySelector('#club-session').innerHTML = grouped;
   document.querySelector('#board-session').innerHTML = grouped;
   renderSessionMenus();
   updateSessionTriggers();
-  const club = document.querySelector('#club-session');
-  const board = document.querySelector('#board-session');
   const firstId = clubSessions[0] ? clubSessions[0].id : '';
-  if (club && !club.value) club.value = firstId;
-  if (board && !board.value) board.value = (club && club.value) || firstId;
+  if (club) club.value = clubSessions.some(item => item.id === previousClub) ? previousClub : firstId;
+  if (board) board.value = clubSessions.some(item => item.id === (previousBoard || previousClub)) ? (previousBoard || previousClub) : (club ? club.value : firstId);
   updateSessionTriggers();
 }
 
@@ -388,7 +411,93 @@ function renderViews() {
     setActiveView(tab.dataset.view);
     if (tab.dataset.view === 'checkin-view') renderCheckins();
     if (tab.dataset.view === 'players-view') renderPlayers();
+    if (tab.dataset.view === 'venues-view') renderVenues();
   }));
+}
+
+function showVenuesError(message) {
+  const error = document.querySelector('#venues-error');
+  if (!error) return;
+  error.hidden = !message;
+  error.textContent = message || '';
+}
+
+function renderVenues() {
+  const list = document.querySelector('#venues-list');
+  if (!list) return;
+  showVenuesError('');
+  list.innerHTML = allSessions.length ? allSessions.map(session => `
+    <article class="venue-card ${session.active ? '' : 'inactive'}" data-venue-card="${session.id}">
+      <div class="venue-card-head"><h3>${escapeHtml(session.day)} · ${escapeHtml(venueShortName(session.location))}</h3><span class="venue-pill ${session.active ? '' : 'off'}">${session.active ? `${session.courts} courts` : 'Inactive'}</span></div>
+      <div class="venue-card-form">
+        <label>Weekday <select data-venue-field="weekday">${weekdayOptions(session.weekday)}</select></label>
+        <label>Venue <input data-venue-field="location" value="${escapeHtml(session.location)}" maxlength="80"></label>
+        <label>Courts <input data-venue-field="courts" type="number" min="1" max="20" value="${session.courts}"></label>
+        <label>Divisions <input data-venue-field="divisions" value="${escapeHtml(session.divisions.join(', '))}" placeholder="e.g. 4, 5, 6"></label>
+      </div>
+      <div class="venue-card-actions">
+        <button type="button" class="secondary-button" data-venue-save="${session.id}">Save</button>
+        ${session.active
+          ? `<button type="button" class="secondary-button danger-button" data-venue-deactivate="${session.id}">Deactivate</button>`
+          : `<button type="button" class="secondary-button" data-venue-reactivate="${session.id}">Reactivate</button>`}
+      </div>
+    </article>`).join('') : '<p class="empty-state">No sessions yet. Add the first one above.</p>';
+  list.querySelectorAll('[data-venue-save]').forEach(button => button.addEventListener('click', () => saveVenue(button.dataset.venueSave)));
+  list.querySelectorAll('[data-venue-deactivate]').forEach(button => button.addEventListener('click', () => setVenueActive(button.dataset.venueDeactivate, false)));
+  list.querySelectorAll('[data-venue-reactivate]').forEach(button => button.addEventListener('click', () => setVenueActive(button.dataset.venueReactivate, true)));
+}
+
+function readVenueCard(sessionId) {
+  const card = document.querySelector(`[data-venue-card="${CSS.escape(sessionId)}"]`);
+  if (!card) return null;
+  const value = field => card.querySelector(`[data-venue-field="${field}"]`)?.value ?? '';
+  return {
+    weekday: value('weekday'),
+    location: value('location').trim(),
+    courts: Number(value('courts')) || 6,
+    divisions: parseDivisionsInput(value('divisions'))
+  };
+}
+
+async function refreshSessions() {
+  const [activeResponse, allResponse] = await Promise.all([
+    fetch(`${apiBaseUrl}/sessions`),
+    fetch(`${apiBaseUrl}/sessions?all=1`)
+  ]);
+  if (!activeResponse.ok) throw new Error(`Could not load sessions: ${activeResponse.status}`);
+  if (!allResponse.ok) throw new Error(`Could not load sessions: ${allResponse.status}`);
+  clubSessions = (await activeResponse.json()).map(normaliseSession);
+  const all = await allResponse.json();
+  allSessions = all.map(normaliseSession);
+  fillDivisionSelects();
+  renderScheduleNote();
+  renderVenues();
+}
+
+async function saveVenue(sessionId) {
+  const payload = readVenueCard(sessionId);
+  if (!payload) return;
+  if (!payload.location) { showVenuesError('Venue name is required.'); return; }
+  showVenuesError('');
+  const response = await fetch(`${apiBaseUrl}/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) { showVenuesError(await readErrorMessage(response)); return; }
+  await refreshSessions();
+  await initializeRoster();
+  await initializeLatestRound().catch(() => {});
+}
+
+async function setVenueActive(sessionId, active) {
+  showVenuesError('');
+  const action = active ? 'reactivate' : 'deactivate';
+  const response = await fetch(`${apiBaseUrl}/sessions/${sessionId}/${action}`, { method: 'POST' });
+  if (!response.ok) { showVenuesError(await readErrorMessage(response)); return; }
+  await refreshSessions();
+  await initializeRoster();
+  await initializeLatestRound().catch(() => {});
 }
 
 function renderCourts() {
@@ -564,6 +673,28 @@ document.querySelector('#swap-cancel').addEventListener('click', closeSwapModal)
 document.querySelector('#swap-modal').addEventListener('click', event => {
   if (event.target.id === 'swap-modal') closeSwapModal();
 });
+document.querySelector('#venue-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const payload = {
+    weekday: document.querySelector('#venue-weekday').value,
+    location: document.querySelector('#venue-location').value.trim(),
+    courts: Number(document.querySelector('#venue-courts').value) || 6,
+    divisions: parseDivisionsInput(document.querySelector('#venue-divisions').value)
+  };
+  if (!payload.location) { showVenuesError('Venue name is required.'); return; }
+  showVenuesError('');
+  const response = await fetch(`${apiBaseUrl}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) { showVenuesError(await readErrorMessage(response)); return; }
+  event.target.reset();
+  document.querySelector('#venue-courts').value = '6';
+  await refreshSessions();
+  await initializeRoster();
+  await initializeLatestRound().catch(() => {});
+});
 document.querySelector('#player-form').addEventListener('submit', async event => {
   event.preventDefault();
   const response = await fetch(`${apiBaseUrl}/players`, {
@@ -590,16 +721,7 @@ async function initializeRoster() {
 }
 
 function initializeSessions() {
-  return fetch(`${apiBaseUrl}/sessions`)
-    .then(response => {
-      if (!response.ok) throw new Error(`Could not load sessions: ${response.status}`);
-      return response.json();
-    })
-    .then(data => {
-      clubSessions = data.map(session => ({ ...session, day: session.day[0] + session.day.slice(1).toLowerCase() }));
-      fillDivisionSelects();
-      renderScheduleNote();
-    });
+  return refreshSessions();
 }
 
 async function initializeLatestRound() {

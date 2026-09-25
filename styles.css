@@ -15,6 +15,7 @@ body { margin:0; color:var(--ink); background:radial-gradient(circle at 90% 0%, 
 body[data-tab="board-view"] .topbar { display:flex; align-items:center; justify-content:space-between; gap:32px; }
 body[data-tab="checkin-view"] .topbar,
 body[data-tab="players-view"] .topbar { display:none; }
+body[data-tab="venues-view"] .topbar { display:none; }
 .eyebrow,.label { color:var(--green); font:500 11px 'DM Mono',monospace; letter-spacing:1.5px; margin:0 0 9px; }
 h1,h2,p { margin:0; } h1 { font-size:clamp(34px,5vw,64px); letter-spacing:-2px; line-height:.98; } h2 { font-size:25px; letter-spacing:-.7px; }
 .topbar h1 { font-size:clamp(26px,3vw,38px); letter-spacing:-1.2px; line-height:1.05; }
@@ -108,6 +109,20 @@ input,select { min-height:42px; border:1px solid var(--line); background:var(--p
 .checkin-toolbar { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); padding:15px 0; margin-bottom:4px; }
 .checkin-toolbar strong { font-size:18px; }
 .player-list,.directory-list { max-width:760px; }
+.venues-list { display:flex; flex-direction:column; gap:14px; max-width:860px; }
+.venue-card { background:var(--panel); border:1px solid var(--line); padding:18px 20px; display:flex; flex-direction:column; gap:12px; }
+.venue-card.inactive { opacity:.65; }
+.venue-card-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.venue-card-head h3 { margin:0; }
+.venue-pill { font:500 10px 'DM Mono',monospace; letter-spacing:1px; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:4px 10px; color:var(--muted); }
+.venue-pill.off { color:var(--coral); border-color:var(--coral); }
+.venue-card-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; align-items:end; }
+.venue-card-form label { min-width:0; }
+.venue-card-form input,.venue-card-form select { width:100%; }
+.venue-card-actions { display:flex; gap:10px; flex-wrap:wrap; }
+.player-form.venue-form { align-items:end; }
+.player-form.venue-form input[type="number"] { min-width:0; width:110px; }
+.player-form.venue-form input#venue-divisions { min-width:200px; }
 .checkin-player,.directory-row { display:flex; align-items:center; gap:14px; border-bottom:1px solid var(--line); padding:15px 0; color:var(--ink); font:15px 'Space Grotesk'; text-transform:none; }
 .checkin-player input { min-height:18px; width:18px; accent-color:var(--green); }
 /* Check-in names are what organisers scan down the roster, so they render a

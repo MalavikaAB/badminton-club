@@ -5,7 +5,7 @@ import { db } from './db.js';
 import { ensureSchema } from './schema.js';
 import { canSwapFormat, generateRound } from './scheduler.js';
 import { EPOCH, type Gender, type Player } from './types.js';
-import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions, sessionCourts } from './repo.js';
+import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions, sessionCourts, createSession, updateSession, setSessionActive } from './repo.js';
 import {
   loadCheckedInPlayers,
   serializeAllocation,
@@ -60,8 +60,51 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
       return;
     }
 
-    if (method === 'GET' && root[0] === 'sessions' && root.length === 1) {
-      sendJson(res, 200, await sessions());
+    if (root[0] === 'sessions' && root.length === 1) {
+      if (method === 'GET') {
+        const includeInactive = req.query.all === '1' || req.query.all === 'true';
+        sendJson(res, 200, await sessions(includeInactive));
+        return;
+      }
+      if (method === 'POST') {
+        try {
+          const body = await readJson(req);
+          sendJson(res, 201, await createSession(body ?? {}));
+        } catch (e: any) {
+          sendError(res, Number(e?.status) || 500, e?.message ?? 'Could not create session');
+        }
+        return;
+      }
+    }
+
+    if (root[0] === 'sessions' && root.length === 2) {
+      const targetId = root[1];
+      if (method === 'PATCH' || method === 'PUT') {
+        try {
+          const body = await readJson(req);
+          sendJson(res, 200, await updateSession(targetId, body ?? {}));
+        } catch (e: any) {
+          sendError(res, Number(e?.status) || 500, e?.message ?? 'Could not update session');
+        }
+        return;
+      }
+    }
+
+    if (root[0] === 'sessions' && root.length === 3 && root[2] === 'deactivate' && method === 'POST') {
+      try {
+        sendJson(res, 200, await setSessionActive(root[1], false));
+      } catch (e: any) {
+        sendError(res, Number(e?.status) || 500, e?.message ?? 'Could not deactivate session');
+      }
+      return;
+    }
+
+    if (root[0] === 'sessions' && root.length === 3 && root[2] === 'reactivate' && method === 'POST') {
+      try {
+        sendJson(res, 200, await setSessionActive(root[1], true));
+      } catch (e: any) {
+        sendError(res, Number(e?.status) || 500, e?.message ?? 'Could not reactivate session');
+      }
       return;
     }
 
