@@ -587,18 +587,20 @@ document.querySelector('#next-round-button').addEventListener('click', generateN
 document.querySelector('#announce-button').addEventListener('click', announce);
 document.querySelector('#login-form').addEventListener('submit', event => {
   event.preventDefault();
-  const username = document.querySelector('#login-username').value.trim();
+  const username = document.querySelector('#login-username').value.trim().toLowerCase();
   const password = document.querySelector('#login-password').value;
   if (username !== DEMO_USERNAME || password !== DEMO_PASSWORD) {
     showLogin('Incorrect username or password. Try the demo credentials below.');
     return;
   }
-  sessionStorage.setItem(SESSION_KEY, username);
+  // Storage can be unavailable in private/restricted browser contexts. The
+  // login should still work for the current page even when it is unavailable.
+  try { sessionStorage.setItem(SESSION_KEY, username); } catch { /* session-only demo auth */ }
   document.querySelector('#login-error').hidden = true;
   startAuthenticatedApp();
 });
 document.querySelectorAll('[data-logout], #logout-button').forEach(button => button.addEventListener('click', () => {
-  sessionStorage.removeItem(SESSION_KEY);
+  try { sessionStorage.removeItem(SESSION_KEY); } catch { /* session-only demo auth */ }
   appStarted = false;
   showLogin();
 });
