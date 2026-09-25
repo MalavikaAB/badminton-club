@@ -149,3 +149,24 @@ input,select { min-height:42px; border:1px solid var(--line); background:var(--p
 .queue-meta { display:flex; align-items:baseline; gap:10px; }
 .queue-meta .games-played { margin-left:0; }
 .queue-meta .wait-time { margin-left:auto; }
+
+
+.auth-screen { min-height:100vh; display:grid; place-items:center; padding:24px; }
+.auth-card { width:min(430px,100%); background:var(--panel); border:1px solid var(--line); padding:38px; box-shadow:0 18px 55px -30px rgba(24,34,30,.45); }
+.auth-card h1 { font-size:clamp(34px,6vw,54px); }
+.login-form { display:flex; flex-direction:column; gap:9px; margin-top:28px; }
+.login-form label { color:var(--muted); font:11px 'DM Mono',monospace; letter-spacing:.8px; text-transform:uppercase; }
+.login-form input { width:100%; border:1px solid var(--line); background:var(--paper); color:var(--ink); padding:13px 14px; font:16px 'Space Grotesk',sans-serif; }
+.login-form input:focus { outline:2px solid var(--green); outline-offset:1px; border-color:var(--green); }
+.login-form .primary-button { margin-top:12px; }
+.login-error { color:var(--coral); font:12px 'DM Mono',monospace; margin:2px 0 0; }
+.demo-credentials { color:var(--muted); font:12px 'DM Mono',monospace; margin-top:24px; }
+.demo-credentials strong { color:var(--ink); }
+.topbar-actions { display:flex; align-items:center; gap:14px; margin-top:18px; }
+.signed-in-as { color:var(--muted); font:12px 'DM Mono',monospace; white-space:nowrap; }
+.signed-in-as strong { color:var(--ink); }
+.topbar-actions .secondary-button,.nav-logout { padding:8px 12px; }
+.nav-logout { margin-left:auto; }
+body.authenticated .auth-screen { display:none; }
+body:not(.authenticated) .shell { display:none; }
+@media(max-width:570px) { .topbar-actions { justify-content:space-between; width:100%; } }

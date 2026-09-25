@@ -7,11 +7,28 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body data-tab="board-view">
+  <div id="auth-screen" class="auth-screen">
+    <div class="auth-card">
+      <p class="eyebrow">MU BADMINTON CLUB</p>
+      <h1>Organiser sign in</h1>
+      <p class="muted">Sign in to manage club night, check-ins, and players.</p>
+      <form id="login-form" class="login-form">
+        <label for="login-username">Username</label>
+        <input id="login-username" name="username" autocomplete="username" required placeholder="Enter username">
+        <label for="login-password">Password</label>
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required placeholder="Enter password">
+        <p id="login-error" class="login-error" role="alert" hidden></p>
+        <button class="primary-button" type="submit">Sign in <span>→</span></button>
+      </form>
+      <p class="demo-credentials">Demo access: <strong>organizer</strong> / <strong>badminton123</strong></p>
+    </div>
+  </div>
   <main class="shell">
     <nav class="tabs" aria-label="Club night sections">
       <button class="tab active" data-view="board-view">Board</button>
       <button class="tab" data-view="checkin-view">Check in</button>
       <button class="tab" data-view="players-view">Players</button>
+      <button type="button" class="secondary-button nav-logout" data-logout>Log out</button>
     </nav>
     <header class="topbar">
       <div>
@@ -20,28 +37,32 @@
         <p class="muted">Live allocation board <span class="live-dot"></span></p>
       </div>
       <div class="round-status">
-      <div class="session-picker board-session-picker" data-session-picker="board-session">
-        <p class="eyebrow session-label"><span class="session-label-icon" aria-hidden="true">📅</span>SESSION</p>
-        <div class="session-dropdown">
-          <button type="button" class="session-trigger session-trigger--board" id="board-session-trigger" aria-haspopup="listbox" aria-expanded="false">
-            <span class="session-day-badge" aria-hidden="true">–</span>
-            <span class="session-trigger-text"><span class="session-trigger-day">Select a session</span><span class="session-trigger-sub">Choose day &amp; venue</span></span>
-            <span class="session-today-pill hidden" id="board-session-today" aria-hidden="true">Today</span>
-            <span class="session-count-badge" id="board-session-count" aria-hidden="true"></span>
-            <span class="session-chevron" aria-hidden="true">▾</span>
-          </button>
-          <div class="session-menu hidden" role="listbox" aria-label="Club night session"></div>
+        <div class="session-picker board-session-picker" data-session-picker="board-session">
+          <p class="eyebrow session-label"><span class="session-label-icon" aria-hidden="true">📅</span>SESSION</p>
+          <div class="session-dropdown">
+            <button type="button" class="session-trigger session-trigger--board" id="board-session-trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span class="session-day-badge" aria-hidden="true">–</span>
+              <span class="session-trigger-text"><span class="session-trigger-day">Select a session</span><span class="session-trigger-sub">Choose day &amp; venue</span></span>
+              <span class="session-today-pill hidden" id="board-session-today" aria-hidden="true">Today</span>
+              <span class="session-count-badge" id="board-session-count" aria-hidden="true"></span>
+              <span class="session-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="session-menu hidden" role="listbox" aria-label="Club night session"></div>
+          </div>
+          <select id="board-session" class="visually-hidden-select" aria-label="Club night session" tabindex="-1"></select>
+          <div class="session-meta">
+            <span class="session-chip" id="board-session-day">—</span>
+            <span class="session-chip ghost" id="board-session-divs">—</span>
+            <span class="session-chip ghost" id="board-session-loc">—</span>
+          </div>
         </div>
-        <select id="board-session" class="visually-hidden-select" aria-label="Club night session" tabindex="-1"></select>
-        <div class="session-meta">
-          <span class="session-chip" id="board-session-day">—</span>
-          <span class="session-chip ghost" id="board-session-divs">—</span>
-          <span class="session-chip ghost" id="board-session-loc">—</span>
-        </div>
-      </div>
         <span class="label">ROUND</span>
         <strong id="round-number">00</strong>
         <span class="muted">20 min games</span>
+      </div>
+      <div class="topbar-actions">
+        <span class="signed-in-as">Signed in as <strong id="current-user"></strong></span>
+        <button type="button" class="secondary-button" id="logout-button">Log out</button>
       </div>
     </header>
 

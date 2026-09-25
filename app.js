@@ -3,6 +3,44 @@
 const apiBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:3000/api/club-night'
   : '/api/club-night';
+
+const DEMO_USERNAME = 'organizer';
+const DEMO_PASSWORD = 'badminton123';
+const SESSION_KEY = 'badminton-club-dummy-auth';
+let appStarted = false;
+
+function isAuthenticated() {
+  try {
+    return sessionStorage.getItem(SESSION_KEY) === DEMO_USERNAME;
+  } catch {
+    return false;
+  }
+}
+
+function showLogin(message = '') {
+  document.body.classList.remove('authenticated');
+  const error = document.querySelector('#login-error');
+  error.hidden = !message;
+  error.textContent = message;
+  document.querySelector('#login-password').value = '';
+  document.querySelector('#login-username').focus();
+}
+
+async function startAuthenticatedApp() {
+  if (appStarted) return;
+  appStarted = true;
+  document.querySelector('#current-user').textContent = DEMO_USERNAME;
+  document.body.classList.add('authenticated');
+  try {
+    await initializeSessions();
+    await initializeLatestRound();
+    await initializeRoster();
+    await initializeLatestRound();
+  } catch (error) {
+    console.error('Could not load club data:', error);
+  }
+}
+
 const divisions = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', 'Open'];
 let clubSessions = [];
 let roster = [];
@@ -547,8 +585,23 @@ async function initializeLatestRound() {
 
 document.querySelector('#next-round-button').addEventListener('click', generateNextRound);
 document.querySelector('#announce-button').addEventListener('click', announce);
-initializeSessions()
-  .then(initializeLatestRound)
-  .then(initializeRoster)
-  .then(initializeLatestRound)
-  .catch(error => console.error('Could not load club data:', error));
+document.querySelector('#login-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const username = document.querySelector('#login-username').value.trim();
+  const password = document.querySelector('#login-password').value;
+  if (username !== DEMO_USERNAME || password !== DEMO_PASSWORD) {
+    showLogin('Incorrect username or password. Try the demo credentials below.');
+    return;
+  }
+  sessionStorage.setItem(SESSION_KEY, username);
+  document.querySelector('#login-error').hidden = true;
+  startAuthenticatedApp();
+});
+document.querySelectorAll('[data-logout], #logout-button').forEach(button => button.addEventListener('click', () => {
+  sessionStorage.removeItem(SESSION_KEY);
+  appStarted = false;
+  showLogin();
+});
+
+if (isAuthenticated()) startAuthenticatedApp();
+else showLogin();
