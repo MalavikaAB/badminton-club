@@ -1,4 +1,9 @@
-import type { CourtAssignment, GameFormat, Player } from './types.js';
+import type {
+  CourtAssignment,
+  GameFormat,
+  Player,
+} from './types.js';
+
 import {
   bestSplit,
   buildCourt as buildCourt2,
@@ -9,113 +14,483 @@ import {
 } from './pairing2.js';
 
 /**
- * Fills the round court by court. For every court the highest-priority format
- * that the remaining pool can still field is used — men's doubles, then women's
- * doubles, then mixed doubles, then open doubles — and the pool is re-evaluated
- * after each court. A court therefore only degrades to open doubles when no
- * typed draw is possible with the players that are left, and a court that
- * cannot be fielded at all is simply left idle instead of pushing the whole
- * round into open doubles.
+ * Build all requested courts.
+ *
+ * If a format template is supplied, we try to honour it in order.
+ *
+ * Example:
+ *
+ * [
+ *   'MENS_DOUBLES',
+ *   'MENS_DOUBLES',
+ *   'WOMENS_DOUBLES',
+ *   'MIXED_DOUBLES',
+ *   'MIXED_DOUBLES',
+ *   'OPEN_DOUBLES'
+ * ]
+ *
+ * The old implementation ignored the actual values in this array
+ * and only used its length. This implementation actually uses them.
+ *
+ * If a requested format cannot be fielded with the remaining players,
+ * we fall back to the best available format so that the round does
+ * not unnecessarily lose a court.
  */
-export function buildAllCourts(selected: Player[], courtCount: number): CourtAssignment[] {
-  const menPool = selected.filter((p) => p.gender === 'MALE');
-  const womenPool = selected.filter((p) => p.gender === 'FEMALE');
+export function buildAllCourts(
+  selected: Player[],
+  courtCount: number,
+  courtFormats?: GameFormat[] | null,
+): CourtAssignment[] {
+  const menPool = selected.filter(
+    (player) => player.gender === 'MALE',
+  );
+
+  const womenPool = selected.filter(
+    (player) => player.gender === 'FEMALE',
+  );
+
   const courts: CourtAssignment[] = [];
-  for (let i = 0; i < courtCount; i++) {
-    const format = nextFormat(menPool.length, womenPool.length);
-    if (!format) break;
-    courts.push(buildCourt2(format, menPool, womenPool));
+
+  /**
+   * If the caller supplied a format template, use it.
+   *
+   * Otherwise preserve the old dynamic behaviour.
+   */
+  const formats =
+    courtFormats && courtFormats.length > 0
+      ? courtFormats.slice(0, courtCount)
+      : [];
+
+  for (
+    let index = 0;
+    index < courtCount;
+    index++
+  ) {
+    const requestedFormat =
+      formats[index];
+
+    let format: GameFormat | null = null;
+
+    if (requestedFormat) {
+      if (
+        canFieldFormat(
+          requestedFormat,
+          menPool.length,
+          womenPool.length,
+        )
+      ) {
+        format = requestedFormat;
+      } else {
+        /**
+         * Requested format is impossible with the players left.
+         *
+         * Rather than leaving a court idle, choose the best available
+         * format.
+         */
+        format = nextFormat(
+          menPool.length,
+          womenPool.length,
+        );
+      }
+    } else {
+      format = nextFormat(
+        menPool.length,
+        womenPool.length,
+      );
+    }
+
+    if (!format) {
+      break;
+    }
+
+    try {
+      const court = buildCourt2(
+        format,
+        menPool,
+        womenPool,
+      );
+
+      courts.push(court);
+    } catch {
+      /**
+       * Defensive fallback.
+       *
+       * The format appeared fieldable by counts, but the detailed
+       * pairing constraints may still make it impossible.
+       */
+      const fallback = findFallbackFormat(
+        format,
+        menPool.length,
+        womenPool.length,
+      );
+
+      if (!fallback) {
+        break;
+      }
+
+      try {
+        const court = buildCourt2(
+          fallback,
+          menPool,
+          womenPool,
+        );
+
+        courts.push(court);
+      } catch {
+        break;
+      }
+    }
   }
+
+  /**
+   * Now that the initial courts exist, improve partner/opponent
+   * combinations by swapping players between courts.
+   */
   localSearch(courts);
+
   return courts;
 }
 
 /**
- * How far a court sits from an even split of the divisions it holds: three
- * players from one division and one from another scores 2, two-and-two scores
- * 0. A court drawn entirely from one division has nothing to even out and also
- * scores 0, so a mixed round never pulls a pure division court apart just to
- * spread divisions around.
+ * Check whether a format can theoretically be fielded.
  */
-function divisionSpread(court: CourtAssignment): number {
-  const counts = new Map<string, number>();
-  for (const player of court.players) {
-    counts.set(player.division, (counts.get(player.division) ?? 0) + 1);
+export function canFieldFormat(
+  format: GameFormat,
+  men: number,
+  women: number,
+): boolean {
+  switch (format) {
+    case 'MENS_DOUBLES':
+      return men >= 4;
+
+    case 'WOMENS_DOUBLES':
+      return women >= 4;
+
+    case 'MIXED_DOUBLES':
+      return men >= 2 && women >= 2;
+
+    case 'OPEN_DOUBLES':
+      return men + women >= 4;
+
+    default:
+      return false;
   }
-  if (counts.size < 2) return 0;
-  return Math.max(...counts.values()) - Math.min(...counts.values());
 }
 
 /**
- * Evens the divisions out across a mixed round's courts: a court that ended up
- * with three players from one division and one from another becomes two and
- * two wherever a neighbouring court can spare the swap. The priority selection
- * fills courts strictly by wait time and the cheapest foursome for a court
- * often straddles divisions unevenly, so this is what keeps a mixed round from
- * stacking one division on a court.
+ * Find a sensible fallback when the requested format cannot
+ * be fielded.
  *
- * A swap is only taken when it strictly evens out the two courts, keeps both
- * legal for the format they already play, and never costs more in repeat
- * partnerships or repeat opponents than the courts cost before — the pairing
- * quality the round already reached can only improve, so balancing can never
- * undo the work of buildAllCourts and its local search.
+ * Preference:
+ *
+ * 1. requested format
+ * 2. men's doubles
+ * 3. women's doubles
+ * 4. mixed doubles
+ * 5. open doubles
  */
-export function balanceDivisionsAcrossCourts(courts: CourtAssignment[]): void {
-  const MAX_PASSES = 4;
-  for (let pass = 0; pass < MAX_PASSES; pass++) {
+function findFallbackFormat(
+  requested: GameFormat,
+  men: number,
+  women: number,
+): GameFormat | null {
+  if (
+    canFieldFormat(
+      requested,
+      men,
+      women,
+    )
+  ) {
+    return requested;
+  }
+
+  const candidates: GameFormat[] = [
+    'MENS_DOUBLES',
+    'WOMENS_DOUBLES',
+    'MIXED_DOUBLES',
+    'OPEN_DOUBLES',
+  ];
+
+  for (const format of candidates) {
+    if (
+      format === requested
+    ) {
+      continue;
+    }
+
+    if (
+      canFieldFormat(
+        format,
+        men,
+        women,
+      )
+    ) {
+      return format;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * How far a court sits from an even split of divisions.
+ *
+ * Examples:
+ *
+ * A A B B -> 0
+ * A A A B -> 2
+ * A A A A -> 0
+ *
+ * A pure division court is not considered imbalanced because
+ * there is nothing to balance within that court.
+ */
+function divisionSpread(
+  court: CourtAssignment,
+): number {
+  const counts = new Map<
+    string,
+    number
+  >();
+
+  for (const player of court.players) {
+    counts.set(
+      player.division,
+      (counts.get(
+        player.division,
+      ) ?? 0) + 1,
+    );
+  }
+
+  if (counts.size < 2) {
+    return 0;
+  }
+
+  return (
+    Math.max(...counts.values()) -
+    Math.min(...counts.values())
+  );
+}
+
+/**
+ * Balance divisions across courts.
+ *
+ * A swap is only accepted when:
+ *
+ * - division spread improves
+ * - both courts remain legal
+ * - partner/opponent cost does not increase
+ */
+export function balanceDivisionsAcrossCourts(
+  courts: CourtAssignment[],
+): void {
+  const MAX_PASSES = 8;
+
+  for (
+    let pass = 0;
+    pass < MAX_PASSES;
+    pass++
+  ) {
     let improved = false;
-    for (let i = 0; i < courts.length; i++) {
-      for (let j = i + 1; j < courts.length; j++) {
+
+    for (
+      let i = 0;
+      i < courts.length;
+      i++
+    ) {
+      for (
+        let j = i + 1;
+        j < courts.length;
+        j++
+      ) {
         const ci = courts[i];
         const cj = courts[j];
-        const before = divisionSpread(ci) + divisionSpread(cj);
-        // Two courts that are either even or single-division: nothing to fix.
-        if (before === 0) continue;
+
+        const before =
+          divisionSpread(ci) +
+          divisionSpread(cj);
+
+        if (before === 0) {
+          continue;
+        }
+
         let swapped = false;
-        for (const playerI of [...ci.players]) {
-          for (const playerJ of [...cj.players]) {
-            // Swapping two players from the same division cannot change either
-            // court's spread.
-            if (playerI.division === playerJ.division) continue;
-            const nextI = replacePlayer(ci.players, playerI, playerJ);
-            const nextJ = replacePlayer(cj.players, playerJ, playerI);
-            if (!validForFormat(ci.format, nextI) || !validForFormat(cj.format, nextJ)) continue;
-            const after = divisionSpread({ ...ci, players: nextI }) + divisionSpread({ ...cj, players: nextJ });
-            if (after >= before) continue;
-            const splitI = bestSplit(nextI, ci.format);
-            const splitJ = bestSplit(nextJ, cj.format);
-            if (splitI.cost + splitJ.cost > courtCostOf(ci) + courtCostOf(cj)) continue;
-            courts[i] = { ...ci, players: nextI, teamA: splitI.teamA, teamB: splitI.teamB };
-            courts[j] = { ...cj, players: nextJ, teamA: splitJ.teamA, teamB: splitJ.teamB };
+
+        for (
+          const playerI of [...ci.players]
+        ) {
+          for (
+            const playerJ of [...cj.players]
+          ) {
+            if (
+              playerI.division ===
+              playerJ.division
+            ) {
+              continue;
+            }
+
+            const nextI =
+              replacePlayer(
+                ci.players,
+                playerI,
+                playerJ,
+              );
+
+            const nextJ =
+              replacePlayer(
+                cj.players,
+                playerJ,
+                playerI,
+              );
+
+            if (
+              !validForFormat(
+                ci.format,
+                nextI,
+              ) ||
+              !validForFormat(
+                cj.format,
+                nextJ,
+              )
+            ) {
+              continue;
+            }
+
+            const after =
+              divisionSpread({
+                ...ci,
+                players: nextI,
+              }) +
+              divisionSpread({
+                ...cj,
+                players: nextJ,
+              });
+
+            if (after >= before) {
+              continue;
+            }
+
+            const splitI =
+              bestSplit(
+                nextI,
+                ci.format,
+              );
+
+            const splitJ =
+              bestSplit(
+                nextJ,
+                cj.format,
+              );
+
+            /**
+             * Never make pairing quality worse while balancing divisions.
+             */
+            const beforeCost =
+              courtCostOf(ci) +
+              courtCostOf(cj);
+
+            const afterCost =
+              splitI.cost +
+              splitJ.cost;
+
+            if (
+              afterCost > beforeCost
+            ) {
+              continue;
+            }
+
+            courts[i] = {
+              ...ci,
+              players: nextI,
+              teamA:
+                splitI.teamA,
+              teamB:
+                splitI.teamB,
+            };
+
+            courts[j] = {
+              ...cj,
+              players: nextJ,
+              teamA:
+                splitJ.teamA,
+              teamB:
+                splitJ.teamB,
+            };
+
             improved = true;
             swapped = true;
+
             break;
           }
-          if (swapped) break;
+
+          if (swapped) {
+            break;
+          }
         }
       }
     }
-    if (!improved) break;
+
+    if (!improved) {
+      break;
+    }
   }
 }
 
 /**
- * Priority order of the format template for the players still waiting: men's
- * doubles, women's doubles, mixed doubles, then open doubles. When both
- * genders could field a same-gender court the larger one is used first, which
- * keeps the play rate balanced across genders; a combination that has no typed
- * draw left (for example one man and three women) falls back to open doubles.
+ * Dynamic format selection used only when no explicit format
+ * template was supplied or when a requested format cannot be
+ * fielded.
+ *
+ * Same general behaviour as before, but with the unreachable
+ * branch removed.
  */
-export function nextFormat(men: number, women: number): GameFormat | null {
-  if (men + women < 4) return null;
-  if (men >= 4 && men >= women) return 'MENS_DOUBLES';
-  if (women >= 4) return 'WOMENS_DOUBLES';
-  if (men >= 4) return 'MENS_DOUBLES';
-  if (men >= 2 && women >= 2) return 'MIXED_DOUBLES';
+export function nextFormat(
+  men: number,
+  women: number,
+): GameFormat | null {
+  if (men + women < 4) {
+    return null;
+  }
+
+  if (
+    men >= 4 &&
+    men >= women
+  ) {
+    return 'MENS_DOUBLES';
+  }
+
+  if (women >= 4) {
+    return 'WOMENS_DOUBLES';
+  }
+
+  if (
+    men >= 2 &&
+    women >= 2
+  ) {
+    return 'MIXED_DOUBLES';
+  }
+
+  if (men >= 4) {
+    return 'MENS_DOUBLES';
+  }
+
+  if (women >= 4) {
+    return 'WOMENS_DOUBLES';
+  }
+
   return 'OPEN_DOUBLES';
 }
 
-export function buildCourt(fmt: GameFormat, a: Player[], b: Player[]): CourtAssignment {
-  return buildCourt2(fmt, a, b);
+/**
+ * Public compatibility wrapper.
+ */
+export function buildCourt(
+  format: GameFormat,
+  men: Player[],
+  women: Player[],
+): CourtAssignment {
+  return buildCourt2(
+    format,
+    men,
+    women,
+  );
 }
-

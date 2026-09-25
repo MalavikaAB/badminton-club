@@ -1,151 +1,947 @@
-import type { CourtAssignment, GameFormat, Player } from './types.js';
-const PW = 2.0; const OW = 1.0;
+import type {
+  CourtAssignment,
+  GameFormat,
+  Player,
+} from './types.js';
+
 /**
- * Penalties for repeating the immediately previous round's partnerships and
- * match-ups. They are deliberately larger than any night-total repeat cost a
- * court can accrue (each pair count is at most the number of rounds played, so
- * the weighted total stays in the tens), which turns the last-round rules into
- * hard constraints: a court with a repeated partner can never beat one without
- * one. When every remaining candidate repeats something the penalty degrades
- * into a soft tie-break instead of failing, so a round is always produced.
+ * Historical partner/opponent weights.
+ *
+ * Repeating an old partner is considered worse than repeating
+ * an old opponent because partner variety is usually more noticeable
+ * in a social club rotation.
+ */
+const PARTNER_WEIGHT = 2.0;
+const OPPONENT_WEIGHT = 1.0;
+
+/**
+ * Immediate-repeat penalties.
+ *
+ * These are deliberately much larger than historical-repeat costs.
+ *
+ * The scheduler should strongly avoid:
+ *
+ * - partnering with the same person twice in a row
+ * - playing against the same person twice in a row
+ *
+ * But they remain penalties rather than impossible states so that
+ * a round can still be produced when the player pool is too small.
  */
 export const LAST_PARTNER_PENALTY = 1000;
 export const LAST_OPPONENT_PENALTY = 100;
-export interface Split { teamA: Player[]; teamB: Player[]; cost: number; }
-export function pairWith(p: Player, o: string): number { return p.pairCount[o] ?? 0; }
-export function oppWith(p: Player, o: string): number { return p.oppCount[o] ?? 0; }
-export function isMale(p: Player): boolean { return p.gender === 'MALE'; }
-/** True when the two players were partners in their most recent round. */
-export function partneredLastRound(a: Player, b: Player): boolean {
-  return a.lastPartner === b.id || b.lastPartner === a.id;
-}
-/** True when the two players faced each other in their most recent round. */
-export function opposedLastRound(a: Player, b: Player): boolean {
-  return (a.lastOpponents ?? []).includes(b.id) || (b.lastOpponents ?? []).includes(a.id);
-}
-export function courtCost(a: Player[], b: Player[]): number {
-  let cost = PW * (pairWith(a[0], a[1].id) + pairWith(b[0], b[1].id))
-    + OW * (oppWith(a[0], b[0].id) + oppWith(a[0], b[1].id) + oppWith(a[1], b[0].id) + oppWith(a[1], b[1].id));
-  if (partneredLastRound(a[0], a[1])) cost += LAST_PARTNER_PENALTY;
-  if (partneredLastRound(b[0], b[1])) cost += LAST_PARTNER_PENALTY;
-  if (opposedLastRound(a[0], b[0])) cost += LAST_OPPONENT_PENALTY;
-  if (opposedLastRound(a[0], b[1])) cost += LAST_OPPONENT_PENALTY;
-  if (opposedLastRound(a[1], b[0])) cost += LAST_OPPONENT_PENALTY;
-  if (opposedLastRound(a[1], b[1])) cost += LAST_OPPONENT_PENALTY;
-  return cost;
-}
-export function courtCostOf(c: CourtAssignment): number { return courtCost(c.teamA, c.teamB); }
-/**
- * A split of a foursome is legal for a format when each side is a valid team
- * for that format. Mixed doubles requires one man and one woman per side, so a
- * foursome of 2M + 2F may never be labelled MIXED_DOUBLES with an M+M vs F+F
- * split.
- */
-export function splitLegalForFormat(format: GameFormat | undefined, a: Player[], b: Player[]): boolean {
-  if (!format || format === 'OPEN_DOUBLES') return true;
-  if (format === 'MENS_DOUBLES') return [...a, ...b].every(isMale);
-  if (format === 'WOMENS_DOUBLES') return [...a, ...b].every((p) => !isMale(p));
-  return isMale(a[0]) !== isMale(a[1]) && isMale(b[0]) !== isMale(b[1]);
-}
-export function bestSplit(f: Player[], format?: GameFormat): Split {
-  const ss = [[0,1,2,3],[0,2,1,3],[0,3,1,2]];
-  let best = Infinity; let A = [f[0],f[1]]; let B = [f[2],f[3]];
-  for (const s of ss) {
-    const a = [f[s[0]],f[s[1]]]; const b = [f[s[2]],f[s[3]]];
-    if (!splitLegalForFormat(format, a, b)) continue;
-    const c = courtCost(a,b);
-    if (c < best) { best = c; A = a; B = b; }
-  }
-  if (best === Infinity) {
-    // No split satisfies the format (defensive only: courts are built from
-    // players that already satisfy validForFormat). Fall back to cheapest.
-    for (const s of ss) {
-      const a = [f[s[0]],f[s[1]]]; const b = [f[s[2]],f[s[3]]];
-      const c = courtCost(a,b);
-      if (c < best) { best = c; A = a; B = b; }
-    }
-  }
-  return { teamA: A, teamB: B, cost: best };
-}
-export function validForFormat(f: GameFormat, ps: Player[]): boolean {
-  if (f === 'OPEN_DOUBLES') return true;
-  if (f === 'MENS_DOUBLES') return ps.every((p) => p.gender === 'MALE');
-  if (f === 'WOMENS_DOUBLES') return ps.every((p) => p.gender === 'FEMALE');
-  // Mixed doubles: two men and two women, and bestSplit only ever picks a
-  // one-man-one-woman split for this format, so the teams stay legal.
-  return ps.filter((p) => p.gender === 'MALE').length === 2 && ps.filter((p) => p.gender === 'FEMALE').length === 2;
-}
-export function replacePlayer(ps: Player[], out: Player, inn: Player): Player[] {
-  const r = [...ps]; r[r.findIndex((p) => p.id === out.id)] = inn; return r;
-}
-export function localSearch(courts: CourtAssignment[]): void {
-  const MAX_PASSES = 100;
-  for (let pass = 0; pass < MAX_PASSES; pass++) {
-    let improved = false;
-    for (let i = 0; i < courts.length; i++) {
-      for (let j = i + 1; j < courts.length; j++) {
-        let swapped = false;
-        for (const pi of [...courts[i].players]) {
-          for (const pj of [...courts[j].players]) {
-            const ci = courts[i];
-            const cj = courts[j];
-            const ni = replacePlayer(ci.players, pi, pj);
-            const nj = replacePlayer(cj.players, pj, pi);
-            if (!validForFormat(ci.format, ni) || !validForFormat(cj.format, nj)) continue;
-            const old = courtCostOf(ci) + courtCostOf(cj);
-            const si = bestSplit(ni, ci.format); const sj = bestSplit(nj, cj.format);
-            if (si.cost + sj.cost < old) {
-              courts[i] = { ...ci, players: ni, teamA: si.teamA, teamB: si.teamB };
-              courts[j] = { ...cj, players: nj, teamA: sj.teamA, teamB: sj.teamB };
-              improved = true;
-              swapped = true;
-              break;
-            }
-          }
-          if (swapped) break;
-        }
-        if (swapped) break;
-      }
-    }
-    if (!improved) break;
-  }
-}
-function take(pool: Player[], chosen: Player[]): void {
-  const ids = new Set(chosen.map((p) => p.id));
-  for (let i = pool.length - 1; i >= 0; i--) if (ids.has(pool[i].id)) pool.splice(i, 1);
-}
-export function buildCourtFromPool(fmt: GameFormat, view: Player[], men: Player[], women: Player[]): CourtAssignment {
-  if (view.length < 4) throw new Error('Not enough players for ' + fmt);
-  let bp: Player[] | null = null; let bA: Player[] | null = null; let bB: Player[] | null = null; let bc = Infinity;
-  for (let i = 0; i < view.length; i++) for (let j = i+1; j < view.length; j++)
-    for (let k = j+1; k < view.length; k++) for (let l = k+1; l < view.length; l++) {
-      const four = [view[i], view[j], view[k], view[l]];
-      const s = bestSplit(four, fmt);
-      if (s.cost < bc) { bc = s.cost; bp = four; bA = s.teamA; bB = s.teamB; }
-    }
-  take(men, bp!); take(women, bp!);
-  return { courtNumber: 0, format: fmt, players: bp!, teamA: bA!, teamB: bB! };
-}
-export function buildMixedCourt(men: Player[], women: Player[]): CourtAssignment {
-  if (men.length < 2 || women.length < 2) throw new Error('Not enough players for mixed');
-  let bp: Player[] | null = null; let bA: Player[] | null = null; let bB: Player[] | null = null; let bc = Infinity;
-  for (let i = 0; i < men.length; i++) for (let j = i+1; j < men.length; j++)
-    for (let k = 0; k < women.length; k++) for (let l = k+1; l < women.length; l++) {
-      const four = [men[i], men[j], women[k], women[l]];
-      // The MIXED_DOUBLES format restriction limits the search to splits with
-      // one man and one woman per side (M+F vs M+F); the M+M vs F+F split of
-      // this foursome is rejected by splitLegalForFormat.
-      const s = bestSplit(four, 'MIXED_DOUBLES');
-      if (s.cost < bc) { bc = s.cost; bp = four; bA = s.teamA; bB = s.teamB; }
-    }
-  take(men, bp!.filter((p) => p.gender === 'MALE'));
-  take(women, bp!.filter((p) => p.gender === 'FEMALE'));
-  return { courtNumber: 0, format: 'MIXED_DOUBLES', players: bp!, teamA: bA!, teamB: bB! };
-}
-export function buildCourt(fmt: GameFormat, men: Player[], women: Player[]): CourtAssignment {
-  if (fmt === 'OPEN_DOUBLES') return buildCourtFromPool(fmt, [...men, ...women], men, women);
-  if (fmt === 'MENS_DOUBLES') return buildCourtFromPool(fmt, men, men, women);
-  if (fmt === 'WOMENS_DOUBLES') return buildCourtFromPool(fmt, women, men, women);
-  return buildMixedCourt(men, women);
+
+export interface Split {
+  teamA: Player[];
+  teamB: Player[];
+  cost: number;
 }
 
+/**
+ * Historical partner count.
+ */
+export function pairWith(
+  player: Player,
+  otherId: string,
+): number {
+  return player.pairCount[
+    otherId
+  ] ?? 0;
+}
+
+/**
+ * Historical opponent count.
+ */
+export function oppWith(
+  player: Player,
+  otherId: string,
+): number {
+  return player.oppCount[
+    otherId
+  ] ?? 0;
+}
+
+export function isMale(
+  player: Player,
+): boolean {
+  return player.gender === 'MALE';
+}
+
+/**
+ * Did these two players partner in the previous round?
+ */
+export function partneredLastRound(
+  a: Player,
+  b: Player,
+): boolean {
+  return (
+    a.lastPartner === b.id ||
+    b.lastPartner === a.id
+  );
+}
+
+/**
+ * Did these two players play against each other
+ * in the previous round?
+ */
+export function opposedLastRound(
+  a: Player,
+  b: Player,
+): boolean {
+  return (
+    (a.lastOpponents ?? []).includes(
+      b.id,
+    ) ||
+    (b.lastOpponents ?? []).includes(
+      a.id,
+    )
+  );
+}
+
+/**
+ * Cost of a particular team-vs-team split.
+ *
+ * Lower = better.
+ */
+export function courtCost(
+  teamA: Player[],
+  teamB: Player[],
+): number {
+  if (
+    teamA.length !== 2 ||
+    teamB.length !== 2
+  ) {
+    return Infinity;
+  }
+
+  let cost = 0;
+
+  /**
+   * Historical partner repeats.
+   */
+  cost +=
+    PARTNER_WEIGHT *
+    (
+      pairWith(
+        teamA[0],
+        teamA[1].id,
+      ) +
+      pairWith(
+        teamB[0],
+        teamB[1].id,
+      )
+    );
+
+  /**
+   * Historical opponent repeats.
+   *
+   * Four possible cross-team relationships.
+   */
+  cost +=
+    OPPONENT_WEIGHT *
+    (
+      oppWith(
+        teamA[0],
+        teamB[0].id,
+      ) +
+      oppWith(
+        teamA[0],
+        teamB[1].id,
+      ) +
+      oppWith(
+        teamA[1],
+        teamB[0].id,
+      ) +
+      oppWith(
+        teamA[1],
+        teamB[1].id,
+      )
+    );
+
+  /**
+   * Immediate partner repeats.
+   */
+  if (
+    partneredLastRound(
+      teamA[0],
+      teamA[1],
+    )
+  ) {
+    cost +=
+      LAST_PARTNER_PENALTY;
+  }
+
+  if (
+    partneredLastRound(
+      teamB[0],
+      teamB[1],
+    )
+  ) {
+    cost +=
+      LAST_PARTNER_PENALTY;
+  }
+
+  /**
+   * Immediate opponent repeats.
+   */
+  const opponentPairs: [
+    Player,
+    Player,
+  ][] = [
+    [teamA[0], teamB[0]],
+    [teamA[0], teamB[1]],
+    [teamA[1], teamB[0]],
+    [teamA[1], teamB[1]],
+  ];
+
+  for (
+    const [a, b] of opponentPairs
+  ) {
+    if (
+      opposedLastRound(a, b)
+    ) {
+      cost +=
+        LAST_OPPONENT_PENALTY;
+    }
+  }
+
+  return cost;
+}
+
+export function courtCostOf(
+  court: CourtAssignment,
+): number {
+  return courtCost(
+    court.teamA,
+    court.teamB,
+  );
+}
+
+/**
+ * Check whether a particular split is legal for the format.
+ */
+export function splitLegalForFormat(
+  format:
+    | GameFormat
+    | undefined,
+  teamA: Player[],
+  teamB: Player[],
+): boolean {
+  if (
+    teamA.length !== 2 ||
+    teamB.length !== 2
+  ) {
+    return false;
+  }
+
+  if (
+    !format ||
+    format === 'OPEN_DOUBLES'
+  ) {
+    return true;
+  }
+
+  const players = [
+    ...teamA,
+    ...teamB,
+  ];
+
+  if (
+    format === 'MENS_DOUBLES'
+  ) {
+    return players.every(
+      (player) =>
+        player.gender === 'MALE',
+    );
+  }
+
+  if (
+    format === 'WOMENS_DOUBLES'
+  ) {
+    return players.every(
+      (player) =>
+        player.gender === 'FEMALE',
+    );
+  }
+
+  /**
+   * Mixed doubles:
+   *
+   * exactly 2 men + 2 women
+   * and each team must be M + F.
+   */
+  if (
+    format === 'MIXED_DOUBLES'
+  ) {
+    return (
+      players.filter(
+        (player) =>
+          player.gender === 'MALE',
+      ).length === 2 &&
+      players.filter(
+        (player) =>
+          player.gender === 'FEMALE',
+      ).length === 2 &&
+      isMixedTeam(teamA) &&
+      isMixedTeam(teamB)
+    );
+  }
+
+  return false;
+}
+
+function isMixedTeam(
+  team: Player[],
+): boolean {
+  return (
+    team.length === 2 &&
+    team[0].gender !==
+      team[1].gender
+  );
+}
+
+/**
+ * All six possible ways of splitting four players into
+ * two unordered teams of two.
+ *
+ * There are only three unique pairings, so three is enough.
+ */
+const SPLITS: number[][] = [
+  [0, 1, 2, 3],
+  [0, 2, 1, 3],
+  [0, 3, 1, 2],
+];
+
+/**
+ * Find the best team split for four players.
+ */
+export function bestSplit(
+  players: Player[],
+  format?: GameFormat,
+): Split {
+  if (players.length !== 4) {
+    return {
+      teamA: [],
+      teamB: [],
+      cost: Infinity,
+    };
+  }
+
+  let bestCost = Infinity;
+
+  let bestA: Player[] = [];
+  let bestB: Player[] = [];
+
+  for (
+    const split of SPLITS
+  ) {
+    const teamA = [
+      players[split[0]],
+      players[split[1]],
+    ];
+
+    const teamB = [
+      players[split[2]],
+      players[split[3]],
+    ];
+
+    if (
+      !splitLegalForFormat(
+        format,
+        teamA,
+        teamB,
+      )
+    ) {
+      continue;
+    }
+
+    const cost =
+      courtCost(
+        teamA,
+        teamB,
+      );
+
+    if (
+      cost < bestCost
+    ) {
+      bestCost = cost;
+      bestA = teamA;
+      bestB = teamB;
+    }
+  }
+
+  return {
+    teamA: bestA,
+    teamB: bestB,
+    cost: bestCost,
+  };
+}
+
+/**
+ * Check whether four players can play a format.
+ */
+export function validForFormat(
+  format: GameFormat,
+  players: Player[],
+): boolean {
+  if (
+    players.length !== 4
+  ) {
+    return false;
+  }
+
+  if (
+    format === 'OPEN_DOUBLES'
+  ) {
+    return true;
+  }
+
+  if (
+    format === 'MENS_DOUBLES'
+  ) {
+    return players.every(
+      (player) =>
+        player.gender === 'MALE',
+    );
+  }
+
+  if (
+    format === 'WOMENS_DOUBLES'
+  ) {
+    return players.every(
+      (player) =>
+        player.gender === 'FEMALE',
+    );
+  }
+
+  /**
+   * Mixed requires exactly 2 men and 2 women.
+   */
+  if (
+    format === 'MIXED_DOUBLES'
+  ) {
+    return (
+      players.filter(
+        (player) =>
+          player.gender === 'MALE',
+      ).length === 2 &&
+      players.filter(
+        (player) =>
+          player.gender === 'FEMALE',
+      ).length === 2
+    );
+  }
+
+  return false;
+}
+
+/**
+ * Replace one player in a four-player group.
+ */
+export function replacePlayer(
+  players: Player[],
+  outgoing: Player,
+  incoming: Player,
+): Player[] {
+  return players.map(
+    (player) =>
+      player.id === outgoing.id
+        ? incoming
+        : player,
+  );
+}
+
+/**
+ * Improve already-created courts by swapping players between courts.
+ *
+ * A swap is accepted only when:
+ *
+ *   new total pairing cost < old total pairing cost
+ *
+ * and both courts remain legal.
+ */
+export function localSearch(
+  courts: CourtAssignment[],
+): void {
+  const MAX_PASSES = 100;
+
+  for (
+    let pass = 0;
+    pass < MAX_PASSES;
+    pass++
+  ) {
+    let improved = false;
+
+    for (
+      let i = 0;
+      i < courts.length;
+      i++
+    ) {
+      for (
+        let j = i + 1;
+        j < courts.length;
+        j++
+      ) {
+        const courtA = courts[i];
+        const courtB = courts[j];
+
+        let swapped = false;
+
+        for (
+          const playerA of [
+            ...courtA.players,
+          ]
+        ) {
+          for (
+            const playerB of [
+              ...courtB.players,
+            ]
+          ) {
+            const nextA =
+              replacePlayer(
+                courtA.players,
+                playerA,
+                playerB,
+              );
+
+            const nextB =
+              replacePlayer(
+                courtB.players,
+                playerB,
+                playerA,
+              );
+
+            if (
+              !validForFormat(
+                courtA.format,
+                nextA,
+              ) ||
+              !validForFormat(
+                courtB.format,
+                nextB,
+              )
+            ) {
+              continue;
+            }
+
+            const oldCost =
+              courtCostOf(
+                courtA,
+              ) +
+              courtCostOf(
+                courtB,
+              );
+
+            const splitA =
+              bestSplit(
+                nextA,
+                courtA.format,
+              );
+
+            const splitB =
+              bestSplit(
+                nextB,
+                courtB.format,
+              );
+
+            if (
+              !Number.isFinite(
+                splitA.cost,
+              ) ||
+              !Number.isFinite(
+                splitB.cost,
+              )
+            ) {
+              continue;
+            }
+
+            const newCost =
+              splitA.cost +
+              splitB.cost;
+
+            if (
+              newCost >= oldCost
+            ) {
+              continue;
+            }
+
+            courts[i] = {
+              ...courtA,
+              players: nextA,
+              teamA:
+                splitA.teamA,
+              teamB:
+                splitA.teamB,
+            };
+
+            courts[j] = {
+              ...courtB,
+              players: nextB,
+              teamA:
+                splitB.teamA,
+              teamB:
+                splitB.teamB,
+            };
+
+            improved = true;
+            swapped = true;
+
+            break;
+          }
+
+          if (swapped) {
+            break;
+          }
+        }
+
+        if (swapped) {
+          break;
+        }
+      }
+
+      if (improved) {
+        break;
+      }
+    }
+
+    if (!improved) {
+      break;
+    }
+  }
+}
+
+/**
+ * Remove chosen players from a pool.
+ */
+function take(
+  pool: Player[],
+  chosen: Player[],
+): void {
+  const ids = new Set(
+    chosen.map(
+      (player) => player.id,
+    ),
+  );
+
+  for (
+    let i = pool.length - 1;
+    i >= 0;
+    i--
+  ) {
+    if (
+      ids.has(pool[i].id)
+    ) {
+      pool.splice(i, 1);
+    }
+  }
+}
+
+/**
+ * Build the cheapest legal foursome for a format.
+ *
+ * This is where the algorithm actually decides which four players
+ * should occupy the court.
+ */
+export function buildCourtFromPool(
+  format: GameFormat,
+  view: Player[],
+  men: Player[],
+  women: Player[],
+): CourtAssignment {
+  if (
+    view.length < 4
+  ) {
+    throw new Error(
+      `Not enough players for ${format}`,
+    );
+  }
+
+  let bestPlayers:
+    | Player[]
+    | null = null;
+
+  let bestTeamA:
+    | Player[]
+    | null = null;
+
+  let bestTeamB:
+    | Player[]
+    | null = null;
+
+  let bestCost = Infinity;
+
+  for (
+    let i = 0;
+    i < view.length;
+    i++
+  ) {
+    for (
+      let j = i + 1;
+      j < view.length;
+      j++
+    ) {
+      for (
+        let k = j + 1;
+        k < view.length;
+        k++
+      ) {
+        for (
+          let l = k + 1;
+          l < view.length;
+          l++
+        ) {
+          const four = [
+            view[i],
+            view[j],
+            view[k],
+            view[l],
+          ];
+
+          if (
+            !validForFormat(
+              format,
+              four,
+            )
+          ) {
+            continue;
+          }
+
+          const split =
+            bestSplit(
+              four,
+              format,
+            );
+
+          if (
+            !Number.isFinite(
+              split.cost,
+            )
+          ) {
+            continue;
+          }
+
+          if (
+            split.cost <
+            bestCost
+          ) {
+            bestCost =
+              split.cost;
+
+            bestPlayers = four;
+            bestTeamA =
+              split.teamA;
+            bestTeamB =
+              split.teamB;
+          }
+        }
+      }
+    }
+  }
+
+  if (
+    !bestPlayers ||
+    !bestTeamA ||
+    !bestTeamB
+  ) {
+    throw new Error(
+      `No legal ${format} court could be built`,
+    );
+  }
+
+  take(
+    men,
+    bestPlayers,
+  );
+
+  take(
+    women,
+    bestPlayers,
+  );
+
+  return {
+    courtNumber: 0,
+    format,
+    players: bestPlayers,
+    teamA: bestTeamA,
+    teamB: bestTeamB,
+  };
+}
+
+/**
+ * Build a mixed doubles court.
+ *
+ * Exactly two men and two women are required.
+ */
+export function buildMixedCourt(
+  men: Player[],
+  women: Player[],
+): CourtAssignment {
+  if (
+    men.length < 2 ||
+    women.length < 2
+  ) {
+    throw new Error(
+      'Not enough players for mixed',
+    );
+  }
+
+  let bestPlayers:
+    | Player[]
+    | null = null;
+
+  let bestTeamA:
+    | Player[]
+    | null = null;
+
+  let bestTeamB:
+    | Player[]
+    | null = null;
+
+  let bestCost = Infinity;
+
+  for (
+    let i = 0;
+    i < men.length;
+    i++
+  ) {
+    for (
+      let j = i + 1;
+      j < men.length;
+      j++
+    ) {
+      for (
+        let k = 0;
+        k < women.length;
+        k++
+      ) {
+        for (
+          let l = k + 1;
+          l < women.length;
+          l++
+        ) {
+          const four = [
+            men[i],
+            men[j],
+            women[k],
+            women[l],
+          ];
+
+          const split =
+            bestSplit(
+              four,
+              'MIXED_DOUBLES',
+            );
+
+          if (
+            !Number.isFinite(
+              split.cost,
+            )
+          ) {
+            continue;
+          }
+
+          if (
+            split.cost <
+            bestCost
+          ) {
+            bestCost =
+              split.cost;
+
+            bestPlayers = four;
+            bestTeamA =
+              split.teamA;
+            bestTeamB =
+              split.teamB;
+          }
+        }
+      }
+    }
+  }
+
+  if (
+    !bestPlayers ||
+    !bestTeamA ||
+    !bestTeamB
+  ) {
+    throw new Error(
+      'No legal mixed court could be built',
+    );
+  }
+
+  take(
+    men,
+    bestPlayers.filter(
+      (player) =>
+        player.gender ===
+        'MALE',
+    ),
+  );
+
+  take(
+    women,
+    bestPlayers.filter(
+      (player) =>
+        player.gender ===
+        'FEMALE',
+    ),
+  );
+
+  return {
+    courtNumber: 0,
+    format:
+      'MIXED_DOUBLES',
+    players: bestPlayers,
+    teamA: bestTeamA,
+    teamB: bestTeamB,
+  };
+}
+
+/**
+ * Public court builder.
+ */
+export function buildCourt(
+  format: GameFormat,
+  men: Player[],
+  women: Player[],
+): CourtAssignment {
+  if (
+    format === 'OPEN_DOUBLES'
+  ) {
+    return buildCourtFromPool(
+      format,
+      [
+        ...men,
+        ...women,
+      ],
+      men,
+      women,
+    );
+  }
+
+  if (
+    format === 'MENS_DOUBLES'
+  ) {
+    return buildCourtFromPool(
+      format,
+      men,
+      men,
+      women,
+    );
+  }
+
+  if (
+    format ===
+    'WOMENS_DOUBLES'
+  ) {
+    return buildCourtFromPool(
+      format,
+      women,
+      men,
+      women,
+    );
+  }
+
+  return buildMixedCourt(
+    men,
+    women,
+  );
+}

@@ -12,82 +12,40 @@ import {
 
 const DEFAULT_COURTS = 6;
 
-/*
- * The old scheduler made one greedy decision:
- *
- *   sort players -> take first N -> build courts
- *
- * That meant the pairing algorithm could improve the courts, but could not
- * reconsider who was selected to play.
- *
- * This scheduler instead:
- *
- *   1. Builds a broad candidate pool.
- *   2. Generates multiple possible selections.
- *   3. Builds a COMPLETE round for each selection.
- *   4. Scores the COMPLETE round.
- *   5. Chooses the lowest-cost round.
- *
- * The search is deliberately bounded so it remains suitable for a normal
- * club-night API request rather than attempting an enormous brute-force search.
- */
-
-/* -------------------------------------------------------------------------- */
-/* Tuning constants                                                           */
-/* -------------------------------------------------------------------------- */
-
 /**
- * How many players beyond the normal cutoff are allowed to compete for a
- * place in the round.
+ * Number of extra players considered when selecting the best group.
  *
  * Example:
- *   24 places available
- *   12 extra candidates
- *   => the algorithm can consider players ranked roughly 1..36.
+ *  - 4 courts = 16 required players
+ *  - candidate pool = 24 players
+ *
+ * This means the scheduler can choose someone slightly lower in the
+ * waiting queue if doing so produces a substantially better round.
  */
-const LOOKAHEAD_PLAYERS = 12;
+const EXTRA_CANDIDATES_PER_COURT = 2;
 
 /**
- * Number of players near the bottom of the initially-selected group that we
- * consider replacing.
+ * Maximum number of local-improvement passes when improving
+ * the selected group.
  */
-const REPLACEMENT_POSITIONS = 8;
+const MAX_SELECTION_PASSES = 20;
 
 /**
- * Maximum number of complete candidate selections to evaluate.
+ * Selection scoring weights.
  *
- * The first candidate is always the normal priority-based selection.
+ * Higher score = stronger reason for a player to play this round.
  */
-const MAX_CANDIDATE_SELECTIONS = 80;
+const WEIGHTS = {
+  roundsWaiting: 100,
+  gamesPlayed: 15,
+  checkedIn: 0.01,
 
-/*
- * Global fairness weights.
- *
- * These are intentionally larger than the historical pairing costs because
- * game/waiting fairness should influence WHO plays, not merely who partners
- * whom.
- */
-const GAME_RANGE_WEIGHT = 1600;
-const GAME_VARIANCE_WEIGHT = 180;
+  immediatePartner: 60,
+  immediateOpponent: 25,
 
-const WAITING_SQUARED_WEIGHT = 90;
-const LONG_WAIT_WEIGHT = 350;
-
-const CONSECUTIVE_PLAY_WEIGHT = 300;
-
-const PARTNER_REPEAT_WEIGHT = 70;
-const LAST_PARTNER_WEIGHT = 700;
-
-const OPPONENT_REPEAT_WEIGHT = 25;
-const LAST_OPPONENT_WEIGHT = 100;
-
-const SAME_GROUP_4_WEIGHT = 700;
-const SAME_GROUP_3_WEIGHT = 300;
-const SAME_GROUP_2_WEIGHT = 75;
-
-/* -------------------------------------------------------------------------- */
-/* Public API                                                                 */
-/* -------------------------------------------------------------------------- */
+  genderImbalance: 35,
+  divisionImbalance: 8,
+};
 
 export function generateRound(
   roundNumber: number,
@@ -111,23 +69,20 @@ export function generateRound(
 
   const courtCount = Math.min(
     cap,
-    Math.min(requested, Math.floor(active.length / 4)),
+    requested,
+    Math.floor(active.length / 4),
   );
 
   if (courtCount === 0) {
     return {
       roundNumber,
       courts: [],
-      waiting: checkedInPlayers,
+      waiting: [...checkedInPlayers].sort(comparePriority),
     };
   }
 
   const ordered = [...active].sort(comparePriority);
 
-  /*
-   * When divisions must remain separate, preserve the existing division
-   * allocation rules but optimize the players selected within each division.
-   */
   if (separateDivisions) {
     return generateSeparatedRound(
       roundNumber,
@@ -137,70 +92,43 @@ export function generateRound(
     );
   }
 
-  /*
-   * Normal/mixed mode:
+  /**
+   * Instead of selecting exactly courtCount * 4 players immediately,
+   * consider a slightly larger candidate pool.
    *
-   * Consider many possible sets of players instead of blindly taking the
-   * first N players.
+   * This gives the scheduler room to avoid immediate repeats and
+   * improve gender/division balance without ignoring waiting priority.
    */
-  const candidates = generateCandidateSelections(
-    ordered,
-    courtCount * 4,
+  const requiredPlayers = courtCount * 4;
+
+  const candidateCount = Math.min(
+    active.length,
+    requiredPlayers + courtCount * EXTRA_CANDIDATES_PER_COURT,
   );
 
-  let bestCourts: CourtAssignment[] | null = null;
-  let bestScore = Infinity;
+  const candidates = ordered.slice(0, candidateCount);
 
-  for (const candidate of candidates) {
-    /*
-     * Preserve the existing gender-parity behaviour, but do it on a copy so
-     * each candidate remains independent.
-     */
-    const selected = prepareSelection(candidate, ordered);
+  const selected = selectBestPlayers(
+    candidates,
+    requiredPlayers,
+  );
 
-    if (selected.length !== courtCount * 4) continue;
-
-    let courts: CourtAssignment[];
-
-    try {
-      courts = buildAllCourts(selected, courtCount);
-    } catch {
-      continue;
-    }
-
-    if (courts.length !== courtCount) continue;
-
-    /*
-     * Keep the existing division balancing behaviour. This only changes
-     * assignments when it can legally improve division distribution without
-     * worsening the pairing cost according to pairing.ts.
-     */
-    balanceDivisionsAcrossCourts(courts);
-
-    const score = scoreCompleteRound(courts, active);
-
-    if (score < bestScore) {
-      bestScore = score;
-      bestCourts = courts;
-    }
-  }
-
-  /*
-   * Defensive fallback. There should almost always be a candidate, but if
-   * something unexpected makes every candidate invalid, preserve the old
-   * behaviour rather than returning no round.
+  /**
+   * Build courts from the optimized selected group.
    */
-  if (!bestCourts) {
-    const selected = prepareSelection(
-      ordered.slice(0, courtCount * 4),
-      ordered,
-    );
+  const courts = buildAllCourts(
+  selected,
+  courtCount,
+  courtFormats,
+);
 
-    bestCourts = buildAllCourts(selected, courtCount);
-    balanceDivisionsAcrossCourts(bestCourts);
-  }
+  /**
+   * Existing division-balancing logic is still useful after the
+   * player-selection step.
+   */
+  balanceDivisionsAcrossCourts(courts);
 
-  const numbered = renumberCourts(bestCourts);
+  const numbered = renumberCourts(courts);
 
   return {
     roundNumber,
@@ -213,421 +141,279 @@ export function generateRound(
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Candidate selection                                                        */
-/* -------------------------------------------------------------------------- */
-
 /**
- * Generates several possible sets of players.
+ * Select the best group of players for this round.
  *
- * The old algorithm considered exactly one selection:
+ * The old implementation simply did:
  *
- *   ordered.slice(0, N)
+ *   ordered.slice(0, courtCount * 4)
  *
- * This function keeps that as the baseline but also considers replacing
- * players near the bottom of the selected group with players just outside
- * the cutoff.
+ * which means the pairing algorithm never gets a chance to influence
+ * who is selected.
  *
- * This is deliberately bounded. We are looking for a materially better
- * round, not an exhaustive combinatorial search.
+ * This version:
+ *
+ * 1. Starts with the highest-priority players.
+ * 2. Looks at additional candidates.
+ * 3. Swaps players in/out when that improves the overall selection.
+ *
+ * This is still intentionally lightweight rather than an expensive
+ * global optimization algorithm.
  */
-function generateCandidateSelections(
-  ordered: Player[],
-  slots: number,
-): Player[][] {
-  const base = ordered.slice(0, slots);
-  const queue = ordered.slice(slots);
-
-  const candidates: Player[][] = [];
-  const seen = new Set<string>();
-
-  const addCandidate = (players: Player[]) => {
-    if (players.length !== slots) return;
-
-    const ids = players
-      .map((p) => p.id)
-      .sort()
-      .join('|');
-
-    if (seen.has(ids)) return;
-
-    seen.add(ids);
-    candidates.push([...players]);
-  };
-
-  /*
-   * Always consider the old algorithm's answer.
-   */
-  addCandidate(base);
-
-  if (queue.length === 0) {
-    return candidates;
+function selectBestPlayers(
+  candidates: Player[],
+  requiredPlayers: number,
+): Player[] {
+  if (candidates.length <= requiredPlayers) {
+    return [...candidates];
   }
 
-  /*
-   * Single replacements.
-   *
-   * We mostly replace players near the bottom of the selected group because
-   * they are the least strongly prioritised players in the old ordering.
-   */
-  const replaceCount = Math.min(
-    REPLACEMENT_POSITIONS,
-    base.length,
-  );
+  let selected = [...candidates.slice(0, requiredPlayers)];
 
-  const queueCount = Math.min(
-    LOOKAHEAD_PLAYERS,
-    queue.length,
-  );
+  for (let pass = 0; pass < MAX_SELECTION_PASSES; pass++) {
+    let improved = false;
 
-  for (let position = 0; position < replaceCount; position++) {
-    const selectedIndex = base.length - 1 - position;
+    const selectedIds = new Set(
+      selected.map((p) => p.id),
+    );
 
-    for (let q = 0; q < queueCount; q++) {
-      const candidate = [...base];
-      candidate[selectedIndex] = queue[q];
-      addCandidate(candidate);
+    const waiting = candidates.filter(
+      (p) => !selectedIds.has(p.id),
+    );
 
-      if (candidates.length >= MAX_CANDIDATE_SELECTIONS) {
-        return candidates;
-      }
-    }
-  }
+    const currentScore = scoreSelection(selected);
 
-  /*
-   * A small number of two-player replacements.
-   *
-   * These are important because sometimes replacing only one player leaves
-   * the round structurally poor. For example, two waiting players may create
-   * much better partner/opponent rotations together.
-   */
-  const bottomCount = Math.min(
-    6,
-    base.length,
-  );
+    let bestScore = currentScore;
+    let bestSelection: Player[] | null = null;
 
-  const outsideCount = Math.min(
-    8,
-    queue.length,
-  );
+    for (const incoming of waiting) {
+      for (let i = 0; i < selected.length; i++) {
+        const outgoing = selected[i];
 
-  outer:
-  for (let a = 0; a < bottomCount - 1; a++) {
-    for (let b = a + 1; b < bottomCount; b++) {
-      for (let qa = 0; qa < outsideCount; qa++) {
-        /*
-         * Use a deterministic second queue index rather than generating every
-         * possible pair.
-         */
-        const qb = (qa + a + b + 1) % outsideCount;
+        const next = [...selected];
+        next[i] = incoming;
 
-        if (qa === qb) continue;
+        const score = scoreSelection(next);
 
-        const candidate = [...base];
-
-        candidate[base.length - 1 - a] = queue[qa];
-        candidate[base.length - 1 - b] = queue[qb];
-
-        addCandidate(candidate);
-
-        if (candidates.length >= MAX_CANDIDATE_SELECTIONS) {
-          break outer;
+        if (score > bestScore) {
+          bestScore = score;
+          bestSelection = next;
         }
       }
     }
+
+    if (bestSelection) {
+      selected = bestSelection;
+      improved = true;
+    }
+
+    if (!improved) {
+      break;
+    }
   }
 
-  return candidates;
+  /**
+   * Keep the final selection deterministic.
+   *
+   * The order itself isn't the optimization result; pairing.ts will
+   * determine the actual court/team arrangement.
+   */
+  return selected.sort(comparePriority);
 }
 
 /**
- * Apply the existing gender-parity adjustment to a candidate without
- * modifying the original candidate or the global player list.
+ * Scores a group of players.
+ *
+ * Higher = better.
+ *
+ * The score intentionally combines several objectives instead of
+ * making waiting time the only consideration.
  */
-function prepareSelection(
-  candidate: Player[],
-  fullPool: Player[],
-): Player[] {
-  const selected = [...candidate];
+function scoreSelection(players: Player[]): number {
+  let score = 0;
 
-  const selectedIds = new Set(
-    selected.map((p) => p.id),
-  );
+  /**
+   * Basic fairness:
+   *
+   * More rounds waiting = stronger reason to play.
+   * Fewer games played = stronger reason to play.
+   */
+  for (const player of players) {
+    score += player.roundsWaiting * WEIGHTS.roundsWaiting;
+    score -= player.gamesPlayed * WEIGHTS.gamesPlayed;
 
-  const queue = fullPool.filter(
-    (p) => !selectedIds.has(p.id),
-  );
+    /**
+     * Earlier check-in gets a tiny deterministic preference.
+     */
+    score += checkInScore(player) * WEIGHTS.checkedIn;
+  }
 
-  adjustGenderParity(selected, queue);
+  /**
+   * Avoid immediate partner/opponent repeats when possible.
+   */
+  score -= immediateRepeatPenalty(players);
 
-  return selected;
+  /**
+   * Gender balance matters because your pairing layer has
+   * gender-specific formats.
+   */
+  score -= genderBalancePenalty(players);
+
+  /**
+   * Avoid putting almost everybody from one division into the
+   * selected group when other divisions are available.
+   */
+  score -= divisionBalancePenalty(players);
+
+  return score;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Complete-round scoring                                                     */
-/* -------------------------------------------------------------------------- */
+/**
+ * Penalize selecting players who were directly connected
+ * in the previous round.
+ */
+function immediateRepeatPenalty(players: Player[]): number {
+  let penalty = 0;
+
+  const ids = new Set(players.map((p) => p.id));
+
+  for (const player of players) {
+    if (
+      player.lastPartner &&
+      ids.has(player.lastPartner)
+    ) {
+      penalty += WEIGHTS.immediatePartner;
+    }
+
+    for (const opponent of player.lastOpponents ?? []) {
+      if (ids.has(opponent)) {
+        penalty += WEIGHTS.immediateOpponent;
+      }
+    }
+  }
+
+  /**
+   * Partner/opponent relationships are normally represented
+   * on both players, so divide by two to avoid double counting.
+   */
+  return penalty / 2;
+}
 
 /**
- * Scores an entire proposed round.
+ * Penalize odd gender counts.
  *
- * Lower is better.
- *
- * This is the important architectural difference from the previous scheduler:
- * the algorithm evaluates:
- *
- *   WHO PLAYS
- *   + HOW MANY GAMES THEY WILL HAVE
- *   + WHO THEY PARTNER
- *   + WHO THEY OPPOSE
- *   + WHETHER THEY JUST PLAYED
- *   + WHETHER THE SAME GROUP REPEATS
- *
- * together.
+ * For doubles, even counts of each gender generally give the
+ * pairing layer more options for men's/women's/mixed courts.
  */
-function scoreCompleteRound(
+function genderBalancePenalty(players: Player[]): number {
+  const men = players.filter(
+    (p) => p.gender === 'MALE',
+  ).length;
+
+  const women = players.filter(
+    (p) => p.gender === 'FEMALE',
+  ).length;
+
+  let penalty = 0;
+
+  if (men % 2 !== 0) {
+    penalty += WEIGHTS.genderImbalance;
+  }
+
+  if (women % 2 !== 0) {
+    penalty += WEIGHTS.genderImbalance;
+  }
+
+  /**
+   * With an even total number of players, this should normally
+   * already be enough. The additional penalty helps when one
+   * gender is extremely overrepresented.
+   */
+  const difference = Math.abs(men - women);
+
+  penalty += difference * 0.5;
+
+  return penalty;
+}
+
+/**
+ * Penalize extreme division imbalance.
+ *
+ * This does NOT force divisions to be equal. It simply prevents
+ * selection from unnecessarily starving a smaller division.
+ */
+function divisionBalancePenalty(players: Player[]): number {
+  const counts = new Map<string, number>();
+
+  for (const player of players) {
+    counts.set(
+      player.division,
+      (counts.get(player.division) ?? 0) + 1,
+    );
+  }
+
+  if (counts.size <= 1) {
+    return 0;
+  }
+
+  const values = [...counts.values()];
+
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+
+  return (
+    Math.max(0, max - min - 2) *
+    WEIGHTS.divisionImbalance
+  );
+}
+
+/**
+ * Convert check-in time into a deterministic, very small score.
+ *
+ * Earlier check-in should win ties, but it should never overpower
+ * waiting time or games played.
+ */
+function checkInScore(player: Player): number {
+  const timestamp = Date.parse(player.checkedInAt);
+
+  if (!Number.isFinite(timestamp)) {
+    return 0;
+  }
+
+  return -timestamp / 1_000_000_000_000;
+}
+
+/**
+ * Everyone not on a court this round.
+ *
+ * We derive this from the actual finished courts rather than simply
+ * using the original unselected slice.
+ *
+ * This is important because buildAllCourts() may be unable to field
+ * one of the requested courts.
+ */
+function waitingAfter(
   courts: CourtAssignment[],
-  active: Player[],
-): number {
+  ordered: Player[],
+  resting: Player[],
+): Player[] {
   const assigned = new Set(
     courts.flatMap((court) =>
       court.players.map((player) => player.id),
     ),
   );
 
-  /*
-   * ------------------------------------------------------------------------
-   * Game-count fairness
-   * ------------------------------------------------------------------------
-   */
-
-  const gamesAfter = active.map(
-    (player) =>
-      player.gamesPlayed +
-      (assigned.has(player.id) ? 1 : 0),
-  );
-
-  const minGames = Math.min(...gamesAfter);
-  const maxGames = Math.max(...gamesAfter);
-
-  const mean =
-    gamesAfter.reduce((sum, value) => sum + value, 0) /
-    gamesAfter.length;
-
-  const variance =
-    gamesAfter.reduce(
-      (sum, value) => sum + Math.pow(value - mean, 2),
-      0,
-    ) / gamesAfter.length;
-
-  let score =
-    (maxGames - minGames) * GAME_RANGE_WEIGHT +
-    variance * GAME_VARIANCE_WEIGHT;
-
-  /*
-   * ------------------------------------------------------------------------
-   * Waiting and consecutive-play fairness
-   * ------------------------------------------------------------------------
-   */
-
-  for (const player of active) {
-    const isPlaying = assigned.has(player.id);
-
-    if (isPlaying) {
-      /*
-       * roundsWaiting === 0 means the player was playing in the immediately
-       * preceding round under the application's existing state model.
-       */
-      if (player.roundsWaiting === 0) {
-        score += CONSECUTIVE_PLAY_WEIGHT;
-      }
-    } else {
-      const waitAfter = player.roundsWaiting + 1;
-
-      /*
-       * Squared waiting cost makes a second consecutive wait considerably more
-       * expensive than a first wait.
-       */
-      score +=
-        waitAfter *
-        waitAfter *
-        WAITING_SQUARED_WEIGHT;
-
-      if (player.roundsWaiting > 0) {
-        score +=
-          player.roundsWaiting *
-          LONG_WAIT_WEIGHT;
-      }
-    }
-  }
-
-  /*
-   * ------------------------------------------------------------------------
-   * Partner / opponent / group rotation
-   * ------------------------------------------------------------------------
-   */
-
-  for (const court of courts) {
-    score += scoreCourtRotation(court);
-  }
-
-  return score;
+  return [
+    ...resting,
+    ...ordered.filter(
+      (player) => !assigned.has(player.id),
+    ),
+  ].sort(comparePriority);
 }
 
 /**
- * Score the rotation quality of one court.
- */
-function scoreCourtRotation(
-  court: CourtAssignment,
-): number {
-  let score = 0;
-
-  const players = court.players;
-
-  /*
-   * Partner history.
-   *
-   * Team A contains two players and Team B contains two players.
-   */
-  score += scorePartnerPair(
-    court.teamA[0],
-    court.teamA[1],
-  );
-
-  score += scorePartnerPair(
-    court.teamB[0],
-    court.teamB[1],
-  );
-
-  /*
-   * Opponent history.
-   */
-  for (const a of court.teamA) {
-    for (const b of court.teamB) {
-      const historical =
-        (a.oppCount[b.id] ?? 0) +
-        (b.oppCount[a.id] ?? 0);
-
-      score +=
-        historical *
-        OPPONENT_REPEAT_WEIGHT;
-
-      if (
-        wasOpponentLastRound(a, b)
-      ) {
-        score += LAST_OPPONENT_WEIGHT;
-      }
-    }
-  }
-
-  /*
-   * Repeated group penalty.
-   *
-   * Only apply this to players who actually played immediately before.
-   * lastPartner/lastOpponents represent each player's most recent played
-   * round, so roundsWaiting === 0 prevents an old historical group from being
-   * mistaken for the immediately previous court.
-   */
-  if (
-    players.length === 4 &&
-    players.every(
-      (p) => p.roundsWaiting === 0,
-    )
-  ) {
-    let previousGroupPairs = 0;
-
-    for (let i = 0; i < players.length; i++) {
-      for (
-        let j = i + 1;
-        j < players.length;
-        j++
-      ) {
-        if (
-          wereTogetherInMostRecentRound(
-            players[i],
-            players[j],
-          )
-        ) {
-          previousGroupPairs++;
-        }
-      }
-    }
-
-    /*
-     * A complete four-player repeat has all six relationships in common.
-     */
-    if (previousGroupPairs === 6) {
-      score += SAME_GROUP_4_WEIGHT;
-    } else if (previousGroupPairs >= 3) {
-      /*
-       * Three shared relationships is enough to indicate a repeated
-       * three-player grouping.
-       */
-      score += SAME_GROUP_3_WEIGHT;
-    } else if (previousGroupPairs >= 2) {
-      score += SAME_GROUP_2_WEIGHT;
-    }
-  }
-
-  return score;
-}
-
-function scorePartnerPair(
-  a: Player,
-  b: Player,
-): number {
-  const historical =
-    (a.pairCount[b.id] ?? 0) +
-    (b.pairCount[a.id] ?? 0);
-
-  let score =
-    historical *
-    PARTNER_REPEAT_WEIGHT;
-
-  if (
-    a.lastPartner === b.id ||
-    b.lastPartner === a.id
-  ) {
-    score += LAST_PARTNER_WEIGHT;
-  }
-
-  return score;
-}
-
-function wasOpponentLastRound(
-  a: Player,
-  b: Player,
-): boolean {
-  return (
-    (a.lastOpponents ?? []).includes(b.id) ||
-    (b.lastOpponents ?? []).includes(a.id)
-  );
-}
-
-/**
- * Returns true if two players were in the same group in their most recent
- * played round, regardless of whether they were partners or opponents.
- */
-function wereTogetherInMostRecentRound(
-  a: Player,
-  b: Player,
-): boolean {
-  return (
-    a.lastPartner === b.id ||
-    b.lastPartner === a.id ||
-    (a.lastOpponents ?? []).includes(b.id) ||
-    (b.lastOpponents ?? []).includes(a.id)
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Separate-division mode                                                     */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Separate divisions remain separate, but the player selection inside each
- * division is now optimized instead of simply taking:
- *
- *   divisionPool.slice(0, courtCount * 4)
+ * Generate a round where each court contains players from a
+ * single division.
  */
 function generateSeparatedRound(
   roundNumber: number,
@@ -635,6 +421,10 @@ function generateSeparatedRound(
   resting: Player[],
   courtCount: number,
 ): RoundAllocation {
+  /**
+   * Group players by division while preserving the global priority
+   * ordering inside each division.
+   */
   const byDiv = new Map<string, Player[]>();
 
   for (const player of ordered) {
@@ -652,83 +442,45 @@ function generateSeparatedRound(
     }),
   );
 
-  /*
-   * Keep the existing proportional division court allocation. The major
-   * fairness change here is who gets the available places within each
-   * division.
-   */
-  const courtsByDiv = allocateDivisionCourts(
-    groups,
-    ordered,
-    courtCount,
-  );
-
-  const all: CourtAssignment[] = [];
-
-  for (const group of groups) {
-    const count =
-      courtsByDiv.get(group.division) ?? 0;
-
-    if (count <= 0) continue;
-
-    const selected = chooseBestDivisionSelection(
-      group.pool,
-      count,
-    );
-
-    if (selected.length !== count * 4) {
-      continue;
-    }
-
-    const courts = buildAllCourts(
-      selected,
-      count,
-    );
-
-    all.push(...courts);
-  }
-
-  return {
-    roundNumber,
-    courts: renumberCourts(all),
-    waiting: waitingAfter(
-      all,
-      ordered,
-      resting,
-    ),
-  };
-}
-
-/**
- * Existing proportional allocation logic, retained so this replacement does
- * not unexpectedly change the club's division allocation policy.
- */
-function allocateDivisionCourts(
-  groups: Array<{
-    division: string;
-    pool: Player[];
-  }>,
-  ordered: Player[],
-  courtCount: number,
-): Map<string, number> {
   const waitRank = new Map(
-    ordered.map((p, i) => [p.id, i]),
+    ordered.map((player, index) => [
+      player.id,
+      index,
+    ]),
   );
 
   const minRank = (group: {
     pool: Player[];
-  }) =>
-    Math.min(
+  }): number => {
+    if (group.pool.length === 0) {
+      return Number.MAX_SAFE_INTEGER;
+    }
+
+    return Math.min(
       ...group.pool.map(
-        (p) => waitRank.get(p.id) ?? 0,
+        (player) =>
+          waitRank.get(player.id) ??
+          Number.MAX_SAFE_INTEGER,
       ),
     );
+  };
 
+  /**
+   * A division can only field one court per four available players.
+   */
   const capacityOf = (group: {
     pool: Player[];
-  }) =>
+  }): number =>
     Math.floor(group.pool.length / 4);
 
+  /**
+   * Phase A:
+   *
+   * Allocate courts roughly according to division size.
+   *
+   * Largest remainder rounding prevents the allocation from being
+   * biased toward whichever division happens to appear first.
+   */
   const courtsByDiv = new Map<string, number>();
 
   const remainders = groups.map((group) => {
@@ -752,7 +504,7 @@ function allocateDivisionCourts(
   let spare =
     courtCount -
     [...courtsByDiv.values()].reduce(
-      (sum, value) => sum + value,
+      (sum, count) => sum + count,
       0,
     );
 
@@ -766,7 +518,9 @@ function allocateDivisionCourts(
   );
 
   for (const { group } of byRemainder) {
-    if (spare <= 0) break;
+    if (spare <= 0) {
+      break;
+    }
 
     courtsByDiv.set(
       group.division,
@@ -776,6 +530,9 @@ function allocateDivisionCourts(
     spare--;
   }
 
+  /**
+   * Never allocate more courts than the division can actually field.
+   */
   for (const group of groups) {
     courtsByDiv.set(
       group.division,
@@ -786,10 +543,17 @@ function allocateDivisionCourts(
     );
   }
 
+  /**
+   * Redistribute any courts that could not be filled.
+   *
+   * Prefer divisions with:
+   *  1. more unallocated players
+   *  2. players who have waited longer
+   */
   let unfilled =
     courtCount -
     [...courtsByDiv.values()].reduce(
-      (sum, value) => sum + value,
+      (sum, count) => sum + count,
       0,
     );
 
@@ -800,25 +564,29 @@ function allocateDivisionCourts(
           (courtsByDiv.get(group.division) ?? 0) <
           capacityOf(group),
       )
-      .sort(
-        (a, b) =>
-          (
-            b.pool.length -
-            4 *
-              (courtsByDiv.get(b.division) ?? 0)
-          ) -
-          (
-            a.pool.length -
-            4 *
-              (courtsByDiv.get(a.division) ?? 0)
-          ) ||
+      .sort((a, b) => {
+        const remainingA =
+          a.pool.length -
+          4 *
+            (courtsByDiv.get(a.division) ?? 0);
+
+        const remainingB =
+          b.pool.length -
+          4 *
+            (courtsByDiv.get(b.division) ?? 0);
+
+        return (
+          remainingB - remainingA ||
           minRank(a) - minRank(b) ||
           a.division.localeCompare(
             b.division,
-          ),
-      )[0];
+          )
+        );
+      })[0];
 
-    if (!candidate) break;
+    if (!candidate) {
+      break;
+    }
 
     courtsByDiv.set(
       candidate.division,
@@ -828,147 +596,93 @@ function allocateDivisionCourts(
     unfilled--;
   }
 
-  return courtsByDiv;
-}
+  /**
+   * Phase B:
+   *
+   * Select players for each division.
+   *
+   * We use the same improved selection algorithm within each
+   * division rather than blindly taking pool.slice(0, n * 4).
+   */
+  const all: CourtAssignment[] = [];
 
-/**
- * Optimize selection within one division.
- */
-function chooseBestDivisionSelection(
-  pool: Player[],
-  courtCount: number,
-): Player[] {
-  const candidates = generateCandidateSelections(
-    [...pool].sort(comparePriority),
-    courtCount * 4,
-  );
+  for (const group of groups) {
+    const courtCountForDivision =
+      courtsByDiv.get(group.division) ?? 0;
 
-  let best: Player[] | null = null;
-  let bestScore = Infinity;
+    if (courtCountForDivision <= 0) {
+      continue;
+    }
 
-  const ordered = [...pool].sort(
-    comparePriority,
-  );
+    const requiredPlayers =
+      courtCountForDivision * 4;
 
-  for (const candidate of candidates) {
-    const selected = prepareSelection(
-      candidate,
-      ordered,
+    const candidateCount = Math.min(
+      group.pool.length,
+      requiredPlayers +
+        courtCountForDivision *
+          EXTRA_CANDIDATES_PER_COURT,
     );
 
-    if (
-      selected.length !==
-      courtCount * 4
-    ) {
-      continue;
-    }
+    const candidates =
+      group.pool.slice(0, candidateCount);
 
-    let courts: CourtAssignment[];
+    const selected = selectBestPlayers(
+      candidates,
+      requiredPlayers,
+    );
 
-    try {
-      courts = buildAllCourts(
+    all.push(
+      ...buildAllCourts(
         selected,
-        courtCount,
-      );
-    } catch {
-      continue;
-    }
-
-    if (
-      courts.length !==
-      courtCount
-    ) {
-      continue;
-    }
-
-    const score =
-      scoreCompleteRound(
-        courts,
-        pool,
-      );
-
-    if (score < bestScore) {
-      bestScore = score;
-      best = selected;
-    }
+        courtCountForDivision,
+        undefined,
+      ),
+    );
   }
 
-  return (
-    best ??
-    prepareSelection(
-      ordered.slice(0, courtCount * 4),
-      ordered,
-    )
-  );
-}
+  const numbered = renumberCourts(all);
 
-/* -------------------------------------------------------------------------- */
-/* Waiting list                                                               */
-/* -------------------------------------------------------------------------- */
+  return {
+    roundNumber,
+    courts: numbered,
+    waiting: waitingAfter(
+      numbered,
+      ordered,
+      resting,
+    ),
+  };
+}
 
 /**
- * Everyone not on a court this round.
- *
- * Importantly, this is derived from the FINISHED courts rather than from the
- * initial selection. That means any player removed during a court-building
- * operation correctly goes back into the waiting list.
+ * Renumber courts sequentially after any court-building or
+ * balancing operation.
  */
-function waitingAfter(
-  courts: CourtAssignment[],
-  ordered: Player[],
-  resting: Player[],
-): Player[] {
-  const assigned = new Set(
-    courts.flatMap((court) =>
-      court.players.map((player) => player.id),
-    ),
-  );
-
-  return [
-    ...resting,
-    ...ordered.filter(
-      (player) => !assigned.has(player.id),
-    ),
-  ].sort(comparePriority);
-}
-
-/* -------------------------------------------------------------------------- */
-/* Court numbering                                                            */
-/* -------------------------------------------------------------------------- */
-
 export function renumberCourts(
   courts: CourtAssignment[],
 ): CourtAssignment[] {
-  return courts.map(
-    (court, index) => ({
-      ...court,
-      courtNumber: index + 1,
-    }),
-  );
+  return courts.map((court, index) => ({
+    ...court,
+    courtNumber: index + 1,
+  }));
 }
 
-/* -------------------------------------------------------------------------- */
-/* Player priority                                                            */
-/* -------------------------------------------------------------------------- */
-
 /**
- * This remains the simple priority order used for:
+ * Player priority used for the waiting queue.
  *
- * - displaying the waiting queue
- * - generating the broad candidate pool
- * - deterministic tie-breaking
+ * Priority order:
  *
- * It is NO LONGER the final scheduling decision.
+ * 1. Longest waiting
+ * 2. Fewest games played
+ * 3. Earlier check-in
+ * 4. Name
  *
- * The actual round is selected using scoreCompleteRound().
+ * This keeps the externally visible queue deterministic.
  */
 export function comparePriority(
   a: Player,
   b: Player,
 ): number {
-  /*
-   * Waiting time remains the first tie-breaker for the visible queue.
-   */
   if (
     a.roundsWaiting !==
     b.roundsWaiting
@@ -993,7 +707,8 @@ export function comparePriority(
     a.checkedInAt !==
     b.checkedInAt
   ) {
-    return a.checkedInAt < b.checkedInAt
+    return a.checkedInAt <
+      b.checkedInAt
       ? -1
       : 1;
   }
@@ -1003,60 +718,63 @@ export function comparePriority(
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Gender parity                                                              */
-/* -------------------------------------------------------------------------- */
-
 /**
- * Preserve the existing gender-parity adjustment.
+ * Kept for compatibility with any existing tests or callers.
  *
- * This function mutates the supplied arrays intentionally because the caller
- * passes fresh candidate arrays.
+ * The main scheduler no longer relies on this as its primary
+ * selection mechanism. Gender balance is now considered during
+ * selection instead.
  */
 export function adjustGenderParity(
   selected: Player[],
   queue: Player[],
 ): void {
   const men = selected.filter(
-    (p) => p.gender === 'MALE',
+    (player) => player.gender === 'MALE',
   ).length;
 
-  if (men % 2 === 0) return;
+  if (men % 2 === 0) {
+    return;
+  }
 
   const last =
     selected[selected.length - 1];
 
-  if (!last) return;
+  if (!last) {
+    return;
+  }
 
-  const target =
+  const targetGender =
     last.gender === 'MALE'
       ? 'FEMALE'
       : 'MALE';
 
   for (
-    let i = 0;
-    i < queue.length;
-    i++
+    let index = 0;
+    index < queue.length;
+    index++
   ) {
     if (
-      queue[i].gender ===
-      target
+      queue[index].gender !==
+      targetGender
     ) {
-      selected[
-        selected.length - 1
-      ] = queue[i];
-
-      queue[i] = last;
-
-      return;
+      continue;
     }
+
+    selected[
+      selected.length - 1
+    ] = queue[index];
+
+    queue[index] = last;
+
+    return;
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Format helper                                                              */
-/* -------------------------------------------------------------------------- */
-
+/**
+ * Whether replacing one player with another can preserve
+ * the requested gender-specific format.
+ */
 export function canSwapFormat(
   format: GameFormat,
   outgoing: Player['gender'],
@@ -1068,7 +786,5 @@ export function canSwapFormat(
     return true;
   }
 
-  return (
-    outgoing === incoming
-  );
+  return outgoing === incoming;
 }
