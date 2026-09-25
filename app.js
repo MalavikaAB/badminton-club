@@ -8,6 +8,9 @@ const DEMO_USERNAME = 'organizer';
 const DEMO_PASSWORD = 'badminton123';
 const SESSION_KEY = 'badminton-club-dummy-auth';
 let appStarted = false;
+// Never keep demo credentials in the visible address bar or browser history.
+if (window.location.search) window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
+
 
 function isAuthenticated() {
   try {
@@ -25,6 +28,19 @@ function showLogin(message = '') {
   document.querySelector('#login-password').value = '';
   document.querySelector('#login-username').focus();
 }
+document.querySelector('#login-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const username = document.querySelector('#login-username').value.trim().toLowerCase();
+  const password = document.querySelector('#login-password').value;
+  if (username !== DEMO_USERNAME || password !== DEMO_PASSWORD) {
+    showLogin('Incorrect username or password. Try the demo credentials below.');
+    return;
+  }
+  try { sessionStorage.setItem(SESSION_KEY, username); } catch { /* session-only demo auth */ }
+  document.querySelector('#login-error').hidden = true;
+  startAuthenticatedApp();
+});
+
 
 async function startAuthenticatedApp() {
   if (appStarted) return;
@@ -585,20 +601,6 @@ async function initializeLatestRound() {
 
 document.querySelector('#next-round-button').addEventListener('click', generateNextRound);
 document.querySelector('#announce-button').addEventListener('click', announce);
-document.querySelector('#login-form').addEventListener('submit', event => {
-  event.preventDefault();
-  const username = document.querySelector('#login-username').value.trim().toLowerCase();
-  const password = document.querySelector('#login-password').value;
-  if (username !== DEMO_USERNAME || password !== DEMO_PASSWORD) {
-    showLogin('Incorrect username or password. Try the demo credentials below.');
-    return;
-  }
-  // Storage can be unavailable in private/restricted browser contexts. The
-  // login should still work for the current page even when it is unavailable.
-  try { sessionStorage.setItem(SESSION_KEY, username); } catch { /* session-only demo auth */ }
-  document.querySelector('#login-error').hidden = true;
-  startAuthenticatedApp();
-});
 document.querySelectorAll('[data-logout], #logout-button').forEach(button => button.addEventListener('click', () => {
   try { sessionStorage.removeItem(SESSION_KEY); } catch { /* session-only demo auth */ }
   appStarted = false;
