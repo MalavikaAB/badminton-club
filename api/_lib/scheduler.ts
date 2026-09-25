@@ -1,5 +1,5 @@
 import type { CourtAssignment, GameFormat, Player, RoundAllocation } from './types.js';
-import { buildAllCourts } from './pairing.js';
+import { balanceDivisionsAcrossCourts, buildAllCourts } from './pairing.js';
 
 const DEFAULT_COURTS = 6;
 
@@ -23,8 +23,14 @@ export function generateRound(
   const selected = ordered.slice(0, courtCount * 4);
   const queue = ordered.slice(courtCount * 4);
   adjustGenderParity(selected, queue);
-  const courts = renumberCourts(buildAllCourts(selected, courtCount));
-  return { roundNumber, courts, waiting: waitingAfter(courts, ordered, resting) };
+  // Divisions are mixed on this path, so even them out across the courts:
+  // two players from a division and two from another rather than three and
+  // one, without weakening the pairings buildAllCourts just found. The
+  // separated path needs no such pass — every court already holds one division.
+  const courts = buildAllCourts(selected, courtCount);
+  balanceDivisionsAcrossCourts(courts);
+  const numbered = renumberCourts(courts);
+  return { roundNumber, courts: numbered, waiting: waitingAfter(numbered, ordered, resting) };
 }
 
 /**

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Club Night Board</title>
-  <link rel="stylesheet" href="styles.css?v=20260925-announce-4up">
+  <link rel="stylesheet" href="styles.css?v=20260925-timer-divmix">
 </head>
 <body data-tab="board-view">
   <div id="auth-screen" class="auth-screen">
@@ -60,6 +60,15 @@
         <span class="label">ROUND</span>
         <strong id="round-number">00</strong>
         <span class="muted">20 min games</span>
+        <!-- Round clock for the organiser: start it as the players walk on and
+             an alarm tells the room when the round is up. data-minutes is the
+             round length, so a different game length is a one-attribute change. -->
+        <div class="round-timer" id="round-timer" data-minutes="15">
+          <span class="round-timer-clock" id="timer-display" role="timer" aria-label="Round timer">15:00</span>
+          <button type="button" class="secondary-button timer-button" id="timer-toggle">Start timer</button>
+          <button type="button" class="secondary-button timer-button" id="timer-reset" hidden>Reset</button>
+        </div>
+        <p class="visually-hidden" id="timer-announcement" role="status"></p>
       </div>
       <div class="topbar-actions">
         <span class="signed-in-as">Signed in as <strong id="current-user"></strong></span>
@@ -93,6 +102,7 @@
         <button class="primary-button" id="next-round-button">Generate next round <span>→</span></button>
         <ol id="waiting-list"></ol>
         <p class="fine-print">Assignments favour players fewest games tonight, then longest waiting. Put someone on a break for the next round, or swap a court player with someone waiting.</p>
+        <p class="fine-print">With divisions mixed, courts are evened out where they can be — two players from one division and two from another rather than three and one.</p>
       </aside>
     </section>
     </section>
@@ -156,6 +166,6 @@
       <button class="secondary-button" id="swap-cancel">Cancel</button>
     </div>
   </div>
-  <script src="app.js?v=20260925-announce-4up"></script>
+  <script src="app.js?v=20260925-timer-divmix"></script>
 </body>
 </html>

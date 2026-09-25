@@ -526,6 +526,127 @@ function renderWaiting() {
   document.querySelectorAll('[data-wait-sit-out]').forEach(button => button.addEventListener('click', () => setSitOut(button.dataset.waitSitOut, button.dataset.sittingOut === 'true')));
 }
 
+// Round timer. The organiser starts it as a round goes on and an audible alarm
+// tells the room when the time is up. The countdown runs off a wall-clock
+// deadline rather than counting ticks, so a throttled background tab — or the
+// board left on the announce overlay — still finishes on time, and the alarm is
+// synthesised with the Web Audio API so the board needs no audio file.
+const ROUND_MINUTES = Number(document.querySelector('#round-timer').dataset.minutes) || 15;
+const ROUND_SECONDS = ROUND_MINUTES * 60;
+let timerDeadline = 0;
+let timerRemaining = ROUND_SECONDS;
+let timerTick = null;
+// True from the first start until a reset. Pausing can leave the countdown at
+// the full round length, and without this the widget would read as though the
+// timer had never been started — hiding Reset and offering "Start timer"
+// instead of "Resume", which silently restarts from the top.
+let timerStarted = false;
+let alarmAudio = null;
+
+function formatClock(seconds) {
+  const safe = Math.max(0, Math.round(seconds));
+  return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`;
+}
+
+function renderRoundTimer() {
+  const running = timerTick !== null;
+  const finished = timerRemaining === 0;
+  document.querySelector('#timer-display').textContent = formatClock(timerRemaining);
+  document.querySelector('#timer-toggle').textContent = running
+    ? 'Pause'
+    : finished
+      ? 'Start again'
+      : timerStarted ? 'Resume' : 'Start timer';
+  document.querySelector('#timer-reset').hidden = !running && !timerStarted && timerRemaining === ROUND_SECONDS;
+  document.querySelector('#round-timer').classList.toggle('is-running', running);
+  document.querySelector('#round-timer').classList.toggle('is-finished', finished);
+}
+
+function announceTimer(message) {
+  document.querySelector('#timer-announcement').textContent = message;
+}
+
+// Browsers only allow audio to be unlocked by a gesture, and the timer is always
+// started by a click, so the context is created and resumed there and only has
+// to play a few seconds later.
+function unlockAlarmAudio() {
+  const AudioCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtor) return;
+  try {
+    if (!alarmAudio) alarmAudio = new AudioCtor();
+    if (alarmAudio.state === 'suspended') alarmAudio.resume().catch(() => {});
+  } catch { /* No audio here: the clock still counts down and the board still pulses. */ }
+}
+
+function playRoundAlarm() {
+  if (!alarmAudio) return;
+  const beeps = 8; // Two bursts of four, so a round ending mid-shuttle is heard.
+  try {
+    const start = alarmAudio.currentTime + 0.05;
+    for (let beep = 0; beep < beeps; beep++) {
+      const at = start + beep * 0.7 + Math.floor(beep / 4) * 0.9;
+      const tone = alarmAudio.createOscillator();
+      const volume = alarmAudio.createGain();
+      tone.type = 'square'; // Cuts through a hall full of shuttles.
+      tone.frequency.setValueAtTime(beep % 2 === 0 ? 880 : 660, at);
+      volume.gain.setValueAtTime(0, at);
+      volume.gain.linearRampToValueAtTime(0.3, at + 0.03);
+      volume.gain.setValueAtTime(0.3, at + 0.45);
+      volume.gain.linearRampToValueAtTime(0, at + 0.55);
+      tone.connect(volume).connect(alarmAudio.destination);
+      tone.start(at);
+      tone.stop(at + 0.6);
+    }
+  } catch { /* An alarm that fails to play must not break the board. */ }
+}
+
+function stopRoundTimer() {
+  if (timerTick !== null) clearInterval(timerTick);
+  timerTick = null;
+}
+
+function tickRoundTimer() {
+  timerRemaining = Math.max(0, Math.ceil((timerDeadline - Date.now()) / 1000));
+  if (timerRemaining > 0) {
+    renderRoundTimer();
+    return;
+  }
+  stopRoundTimer();
+  renderRoundTimer();
+  playRoundAlarm();
+  announceTimer(`Time — the ${ROUND_MINUTES} minute round is up.`);
+}
+
+function startRoundTimer() {
+  if (timerRemaining === 0) timerRemaining = ROUND_SECONDS; // Start again after the alarm.
+  timerDeadline = Date.now() + timerRemaining * 1000;
+  stopRoundTimer();
+  timerTick = setInterval(tickRoundTimer, 250);
+  timerStarted = true;
+  unlockAlarmAudio();
+  announceTimer(`${ROUND_MINUTES} minute round started.`);
+  renderRoundTimer();
+}
+
+function pauseRoundTimer() {
+  timerRemaining = Math.max(0, Math.ceil((timerDeadline - Date.now()) / 1000));
+  stopRoundTimer();
+  renderRoundTimer();
+}
+
+function toggleRoundTimer() {
+  if (timerTick !== null) pauseRoundTimer();
+  else startRoundTimer();
+}
+
+function resetRoundTimer() {
+  stopRoundTimer();
+  timerRemaining = ROUND_SECONDS;
+  timerStarted = false;
+  announceTimer('');
+  renderRoundTimer();
+}
+
 // Mirrors the backend rule in ClubNightController.canSwap: open doubles takes
 // anyone, the gender-specific formats need a replacement of the same gender or
 // the court stops being a legal men's/women's/mixed line-up.
@@ -669,7 +790,7 @@ function announce() {
   document.addEventListener('keydown', onKey);
   document.body.appendChild(overlay);
 }
-renderCourts(); renderWaiting();
+renderCourts(); renderWaiting(); renderRoundTimer();
 renderViews();
 initializeRoster();
 setupSessionDropdowns();
@@ -756,6 +877,8 @@ async function initializeLatestRound() {
 
 document.querySelector('#next-round-button').addEventListener('click', generateNextRound);
 document.querySelector('#announce-button').addEventListener('click', announce);
+document.querySelector('#timer-toggle').addEventListener('click', toggleRoundTimer);
+document.querySelector('#timer-reset').addEventListener('click', resetRoundTimer);
 document.querySelectorAll('[data-logout], #logout-button').forEach(button => button.addEventListener('click', () => {
   try { sessionStorage.removeItem(SESSION_KEY); } catch { /* session-only demo auth */ }
   appStarted = false;

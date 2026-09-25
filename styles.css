@@ -200,3 +200,17 @@ body:not(.authenticated) .shell { display:none; }
 .announce .court .format { color:var(--muted); margin-top:18px; font-size:clamp(11px,0.85vw,14px); }
 @media(max-width:1200px) { .announce .courts { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:640px) { .announce { padding:16px 14px 22px; } .announce .courts { grid-template-columns:minmax(0,1fr); gap:12px; } }
+
+/* Round timer: the 15-minute round clock under the round number. It is read
+   from across the hall, so the clock is large and tabular (digits never jitter
+   as they change), turns coral when the round is up, and pulses until the next
+   round starts. */
+.round-timer { display:flex; align-items:center; gap:12px; }
+.round-timer-clock { font:600 26px 'DM Mono',monospace; letter-spacing:1px; color:var(--green); font-variant-numeric:tabular-nums; }
+.round-timer.is-running .round-timer-clock { color:var(--ink); }
+.round-timer.is-finished .round-timer-clock { color:var(--coral); animation:round-timer-pulse 1.1s ease-in-out infinite; }
+.round-timer .timer-button { padding:6px 10px; font-size:14px; white-space:nowrap; }
+@keyframes round-timer-pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
+@media(prefers-reduced-motion:reduce) { .round-timer.is-finished .round-timer-clock { animation:none; } }
+/* Screen-reader-only text: used for the timer status announcements. */
+.visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
