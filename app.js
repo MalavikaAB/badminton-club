@@ -607,7 +607,7 @@ document.querySelectorAll('[data-logout], #logout-button').forEach(button => but
   try { sessionStorage.removeItem(SESSION_KEY); } catch { /* session-only demo auth */ }
   appStarted = false;
   showLogin();
-});
+}));
 
 if (isAuthenticated()) startAuthenticatedApp();
 else showLogin();
