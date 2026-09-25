@@ -51,7 +51,6 @@ async function startAuthenticatedApp() {
   document.body.classList.add('authenticated');
   try {
     await initializeSessions();
-    await initializeLatestRound();
     await initializeRoster();
     await initializeLatestRound();
   } catch (error) {
@@ -140,6 +139,13 @@ function fillDivisionSelects() {
   document.querySelector('#club-session').innerHTML = grouped;
   document.querySelector('#board-session').innerHTML = grouped;
   renderSessionMenus();
+  updateSessionTriggers();
+  const club = document.querySelector('#club-session');
+  const board = document.querySelector('#board-session');
+  const firstId = clubSessions[0] ? clubSessions[0].id : '';
+  if (club && !club.value) club.value = firstId;
+  if (board && !board.value) board.value = (club && club.value) || firstId;
+  updateSessionTriggers();
 }
 
 function escapeHtml(text) {
@@ -532,6 +538,7 @@ function announce() {
 }
 renderCourts(); renderWaiting();
 renderViews();
+initializeRoster();
 setupSessionDropdowns();
 document.querySelector('#club-session').addEventListener('change', () => {
   document.querySelector('#board-session').value = selectedSession();
