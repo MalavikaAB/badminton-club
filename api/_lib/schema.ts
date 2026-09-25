@@ -84,7 +84,10 @@ insert into venue_sessions (id, weekday, location) values
   ('thursday-c', 'THURSDAY', 'location c'),
   ('sunday-b', 'SUNDAY', 'location b'),
   ('sunday-a', 'SUNDAY', 'location a')
-on conflict (id) do update set location = excluded.location, active = true;
+on conflict (id) do nothing;
+  -- The seed above inserts only missing rows. It must NOT clobber location or
+  -- active on conflict, or each serverless cold start would undo an
+  -- organiser's venue renames / deactivations back to the seed values.
 insert into venue_session_divisions (session_id, division) values
   ('monday-a', '4'), ('monday-a', '5'), ('monday-a', '6'),
   ('tuesday-b', '1'), ('tuesday-b', '2'), ('tuesday-b', '3'),

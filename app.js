@@ -47,7 +47,6 @@ document.querySelector('#login-form').addEventListener('submit', handleDemoLogin
 async function startAuthenticatedApp() {
   if (appStarted) return;
   appStarted = true;
-  document.querySelector('#current-user').textContent = DEMO_USERNAME;
   document.body.classList.add('authenticated');
   try {
     await initializeSessions();
@@ -388,9 +387,34 @@ function updateGenerateButton() {
   button.title = checkedInCount < 4 ? 'Check in at least four players first' : '';
 }
 
+let editingPlayerId = null;
+
+function beginEditingPlayer(playerId) {
+  const player = roster.find(item => item.id === playerId);
+  if (!player) return;
+  editingPlayerId = playerId;
+  document.querySelector('#player-name').value = player.name;
+  document.querySelector('#player-gender').value = player.gender;
+  document.querySelector('#player-division').value = player.division;
+  const submit = document.querySelector('#player-submit');
+  submit.textContent = 'Save changes';
+  submit.disabled = false;
+  document.querySelector('#player-edit-cancel').hidden = false;
+  document.querySelector('#player-name').focus();
+}
+
+function cancelEditingPlayer() {
+  editingPlayerId = null;
+  document.querySelector('#player-form').reset();
+  const submit = document.querySelector('#player-submit');
+  submit.innerHTML = 'Add player <span>+</span>';
+  document.querySelector('#player-edit-cancel').hidden = true;
+}
+
 function renderPlayers() {
   document.querySelector('#players-list').innerHTML = roster.length ? roster.map(player => `
-    <div class="directory-row"><span><strong>${player.name}</strong><small>${player.gender === 'MALE' ? 'Male' : 'Female'} · Div ${player.division}</small></span><button class="remove-button" data-remove-id="${player.id}" title="Remove ${player.name}">Remove</button></div>`).join('') : '<p class="empty-state">No players added yet.</p>';
+    <div class="directory-row"><span><strong>${player.name}</strong><small>${player.gender === 'MALE' ? 'Male' : 'Female'} · Div ${player.division}</small></span><span class="row-actions"><button type="button" class="edit-button" data-edit-id="${player.id}" title="Edit ${player.name}">Edit</button><button type="button" class="remove-button" data-remove-id="${player.id}" title="Remove ${player.name}">Remove</button></span></div>`).join('') : '<p class="empty-state">No players added yet.</p>';
+  document.querySelectorAll('[data-edit-id]').forEach(button => button.addEventListener('click', () => beginEditingPlayer(button.dataset.editId)));
   document.querySelectorAll('[data-remove-id]').forEach(button => button.addEventListener('click', async () => {
     const response = await fetch(`${apiBaseUrl}/players/${button.dataset.removeId}`, { method: 'DELETE' });
     if (!response.ok) return;
@@ -842,21 +866,35 @@ document.querySelector('#venue-form').addEventListener('submit', async event => 
 });
 document.querySelector('#player-form').addEventListener('submit', async event => {
   event.preventDefault();
-  const response = await fetch(`${apiBaseUrl}/players`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: document.querySelector('#player-name').value.trim(),
-      gender: document.querySelector('#player-gender').value,
-      division: document.querySelector('#player-division').value
-    })
-  });
-  if (!response.ok) return;
-  roster.push(await response.json());
-  event.target.reset();
+  const payload = {
+    name: document.querySelector('#player-name').value.trim(),
+    gender: document.querySelector('#player-gender').value,
+    division: document.querySelector('#player-division').value
+  };
+  if (editingPlayerId) {
+    const response = await fetch(`${apiBaseUrl}/players/${editingPlayerId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) return;
+    const updated = await response.json();
+    const index = roster.findIndex(player => player.id === editingPlayerId);
+    if (index >= 0) roster[index] = updated; else roster.push(updated);
+  } else {
+    const response = await fetch(`${apiBaseUrl}/players`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) return;
+    roster.push(await response.json());
+  }
+  cancelEditingPlayer();
   renderPlayers();
   renderCheckins();
 });
+document.querySelector('#player-edit-cancel').addEventListener('click', cancelEditingPlayer);
 async function initializeRoster() {
   const response = await fetch(`${apiBaseUrl}/players`);
   if (!response.ok) throw new Error(`Could not load players: ${response.status}`);
@@ -879,7 +917,7 @@ document.querySelector('#next-round-button').addEventListener('click', generateN
 document.querySelector('#announce-button').addEventListener('click', announce);
 document.querySelector('#timer-toggle').addEventListener('click', toggleRoundTimer);
 document.querySelector('#timer-reset').addEventListener('click', resetRoundTimer);
-document.querySelectorAll('[data-logout], #logout-button').forEach(button => button.addEventListener('click', () => {
+document.querySelectorAll('[data-logout]').forEach(button => button.addEventListener('click', () => {
   try { sessionStorage.removeItem(SESSION_KEY); } catch { /* session-only demo auth */ }
   appStarted = false;
   showLogin();

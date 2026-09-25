@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Club Night Board</title>
-  <link rel="stylesheet" href="styles.css?v=20260925-timer-divmix">
+  <link rel="stylesheet" href="styles.css?v=20260925-timer-divmix-editvenue">
 </head>
 <body data-tab="board-view">
   <div id="auth-screen" class="auth-screen">
@@ -69,10 +69,6 @@
           <button type="button" class="secondary-button timer-button" id="timer-reset" hidden>Reset</button>
         </div>
         <p class="visually-hidden" id="timer-announcement" role="status"></p>
-      </div>
-      <div class="topbar-actions">
-        <span class="signed-in-as">Signed in as <strong id="current-user"></strong></span>
-        <button type="button" class="secondary-button" id="logout-button">Log out</button>
       </div>
     </header>
 
@@ -139,7 +135,8 @@
         <label>Name <input id="player-name" required placeholder="Player name"></label>
         <label>Gender <select id="player-gender"><option value="MALE">Male</option><option value="FEMALE">Female</option></select></label>
         <label>Div <select id="player-division"></select></label>
-        <button class="primary-button" type="submit">Add player <span>+</span></button>
+        <button class="primary-button" type="submit" id="player-submit">Add player <span>+</span></button>
+        <button type="button" class="secondary-button" id="player-edit-cancel" hidden>Cancel</button>
       </form>
       <div id="players-list" class="directory-list"></div>
     </section>
@@ -166,6 +163,6 @@
       <button class="secondary-button" id="swap-cancel">Cancel</button>
     </div>
   </div>
-  <script src="app.js?v=20260925-timer-divmix"></script>
+  <script src="app.js?v=20260925-timer-divmix-editvenue"></script>
 </body>
 </html>

@@ -130,7 +130,9 @@ input,select { min-height:42px; border:1px solid var(--line); background:var(--p
 .checkin-player { font-size:19px; }
 .checkin-player small,.directory-row small { color:var(--muted); font:11px 'DM Mono'; margin-left:auto; }
 .directory-row > span { display:flex; flex-direction:column; gap:5px; }
-.remove-button { margin-left:auto; border:0; border-bottom:1px solid var(--coral); background:transparent; color:var(--coral); cursor:pointer; padding:5px 0; }
+.row-actions { display:flex; flex-direction:row; gap:10px; margin-left:auto; align-items:center; }
+.edit-button { border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--green); cursor:pointer; padding:5px 0; }
+.remove-button { border:0; border-bottom:1px solid var(--coral); background:transparent; color:var(--coral); cursor:pointer; padding:5px 0; }
 .empty-state { color:var(--muted); padding:25px 0; }
 @media(max-width:570px) { .tabs { margin-bottom:28px; }.checkin-player,.directory-row { align-items:flex-start; flex-wrap:wrap; }.checkin-player small,.directory-row small { margin-left:32px; width:100%; }.player-form > * { width:100%; }.player-form input { min-width:0; width:100%; }.player-form .primary-button { width:100%; } }
 .heading-actions { display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
@@ -177,14 +179,9 @@ input,select { min-height:42px; border:1px solid var(--line); background:var(--p
 .login-error { color:var(--coral); font:12px 'DM Mono',monospace; margin:2px 0 0; }
 .demo-credentials { color:var(--muted); font:12px 'DM Mono',monospace; margin-top:24px; }
 .demo-credentials strong { color:var(--ink); }
-.topbar-actions { display:flex; align-items:center; gap:14px; margin-top:18px; }
-.signed-in-as { color:var(--muted); font:12px 'DM Mono',monospace; white-space:nowrap; }
-.signed-in-as strong { color:var(--ink); }
-.topbar-actions .secondary-button,.nav-logout { padding:8px 12px; }
-.nav-logout { margin-left:auto; }
+.nav-logout { padding:8px 12px; margin-left:auto; }
 body.authenticated .auth-screen { display:none; }
 body:not(.authenticated) .shell { display:none; }
-@media(max-width:570px) { .topbar-actions { justify-content:space-between; width:100%; } }
 
 /* Announce mode: the room-facing board. It reuses the main board's .court cards
    four to a row and shows nothing else, so names stay as big and as readable as

@@ -54,6 +54,11 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
       return;
     }
 
+    if ((method === 'PATCH' || method === 'PUT') && root[0] === 'players' && root.length === 2) {
+      await handlePlayerUpdate(req, res, root[1]);
+      return;
+    }
+
     if (method === 'DELETE' && root[0] === 'players' && root.length === 2) {
       await db()`update players set active = false where id = ${root[1]}`;
       sendJson(res, 200, { ok: true });
@@ -169,6 +174,27 @@ async function handlePlayers(req: VercelRequest, res: VercelResponse, method: st
     return;
   }
   sendJson(res, 405, { message: 'Method not allowed' });
+}
+
+async function handlePlayerUpdate(req: VercelRequest, res: VercelResponse, playerId: string): Promise<void> {
+  const sql = db();
+  const rows = await sql`select id from players where id = ${playerId} and active = true`;
+  if (!(rows as any[]).length) { sendError(res, 404, 'Player not found'); return; }
+  const body = await readJson(req);
+  const name = body?.name !== undefined ? String(body.name).trim() : undefined;
+  const gender = body?.gender;
+  const division = body?.division !== undefined ? String(body.division).trim() : undefined;
+  if (name !== undefined && name.length === 0) { sendError(res, 400, 'Name is required'); return; }
+  if (gender !== undefined && gender !== 'MALE' && gender !== 'FEMALE') { sendError(res, 400, 'Gender must be MALE or FEMALE'); return; }
+  if (division !== undefined && division.length === 0) { sendError(res, 400, 'Division is required'); return; }
+  if (name !== undefined) await sql`update players set name = ${name} where id = ${playerId}`;
+  if (gender !== undefined) await sql`update players set gender = ${gender} where id = ${playerId}`;
+  if (division !== undefined) await sql`update players set division = ${division} where id = ${playerId}`;
+  const after = await sql`select id, name, gender, division, games_played from players where id = ${playerId}`;
+  const r = (after as any[])[0];
+  sendJson(res, 200, {
+    id: String(r.id), name: r.name, gender: r.gender, division: r.division, gamesPlayed: Number(r.games_played),
+  });
 }
 
 async function handleCheckIns(
