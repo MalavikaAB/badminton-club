@@ -638,57 +638,28 @@ async function generateNextRound() {
     updateGenerateButton();
   }
 }
-// Team A / team B of a court as players, falling back to first two / last two
-// when an older board payload has no team split, so the announcement always
-// shows four names.
-function announceSides(court) {
-  const playersFor = ids => (ids || [])
-    .map(id => court.players.find(player => player.id === id))
-    .filter(Boolean);
-  const teamA = playersFor(court.teamA);
-  const teamB = playersFor(court.teamB);
-  if (teamA.length !== 2 || teamB.length !== 2) {
-    return [court.players.slice(0, 2), court.players.slice(2, 4)];
-  }
-  return [teamA, teamB];
-}
-
-function announceCourtCard(court) {
-  const [teamA, teamB] = announceSides(court);
-  const names = team => team.map(player => `<li>${escapeHtml(player.name)}</li>`).join('');
+// Announce mode reuses the main board's court card, so the room sees exactly
+// what the organiser sees — minus the swap buttons and per-player stats.
+function announceCourt({ court, format, color, players, teamA, teamB }) {
   return `
-    <article class="announce-court" style="--court-color:${court.color}">
-      <div class="announce-court-head"><span>COURT</span><strong>${escapeHtml(String(court.court))}</strong><small>${escapeHtml(court.format)}</small></div>
-      <div class="announce-teams">
-        <ul class="announce-team team-a">${names(teamA)}</ul>
-        <span class="announce-vs">v</span>
-        <ul class="announce-team team-b">${names(teamB)}</ul>
-      </div>
+    <article class="court" style="--court-color:${color}">
+      <div class="court-number"><strong>COURT ${court}</strong></div>
+      <ul>${players.map(player => `<li class="${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''}"><span>${escapeHtml(player.name)}</span></li>`).join('')}</ul>
+      <p class="format">${escapeHtml(format)}</p>
     </article>`;
 }
 
-// Announce mode is the room-facing board: instead of a banner telling players to
-// head to their court, it lists every court with its format and both line-ups so
-// people read their own name off the screen.
+// The room-facing board: only the courts, four to a row, so players read their
+// own name, their partner and their court straight off the screen. Esc or a tap
+// anywhere closes it again.
 function announce() {
-  const roundLabel = document.querySelector('#round-number')?.textContent || '00';
-  const session = clubSessions.find(item => item.id === selectedSession()) || clubSessions[0];
+  if (!rounds.length) return;
   const overlay = document.createElement('div');
   overlay.className = 'announce';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-label', 'Courts and line-ups for this round');
-  overlay.innerHTML = `
-    <div class="announce-panel">
-      <div class="announce-head">
-        <p class="eyebrow">${escapeHtml(session ? `${session.day} · Round ${roundLabel}` : `Round ${roundLabel}`)}</p>
-        <h2>COURTS ARE READY</h2>
-        <p class="announce-sub">${rounds.length ? 'Find your name, then head to your court.' : 'No courts on the board yet — generate a round first.'}</p>
-      </div>
-      ${rounds.length ? `<div class="announce-courts">${rounds.map(announceCourtCard).join('')}</div>` : ''}
-      ${waiting.length ? `<p class="announce-waiting"><span>Waiting this round</span>${waiting.map(player => `<strong>${escapeHtml(player.name)}</strong>`).join('')}</p>` : ''}
-      <p class="announce-hint">Tap anywhere or press Esc to close</p>
-    </div>`;
+  overlay.setAttribute('aria-label', 'Courts for this round');
+  overlay.innerHTML = `<div class="courts">${rounds.map(announceCourt).join('')}</div>`;
   const close = () => {
     document.removeEventListener('keydown', onKey);
     overlay.remove();

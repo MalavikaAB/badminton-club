@@ -186,28 +186,17 @@ body.authenticated .auth-screen { display:none; }
 body:not(.authenticated) .shell { display:none; }
 @media(max-width:570px) { .topbar-actions { justify-content:space-between; width:100%; } }
 
-/* Announce mode: the room-facing board. The overlay scrolls and prints every
-   court with both line-ups, so it replaces the old "go to your court" banner. */
-.announce { display:block; overflow:auto; padding:34px 5vw 46px; text-align:center; }
-.announce h2 { font-size:clamp(26px,3.6vw,44px); letter-spacing:-1px; }
-.announce-panel { width:min(1280px,100%); margin:0 auto; }
-.announce-head .eyebrow { color:var(--lime); margin-bottom:10px; }
-.announce-head h2 { color:white; }
-.announce-sub { color:#9caaa2; font:12.5px 'DM Mono',monospace; }
-.announce-courts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:14px; margin:30px 0 6px; text-align:left; }
-.announce-court { background:#212b26; border:1px solid #3a4941; border-left:6px solid var(--court-color,var(--lime)); padding:16px 18px 18px; }
-.announce-court-head { display:flex; align-items:baseline; gap:9px; margin-bottom:14px; }
-.announce-court-head span { color:#9caaa2; font:11px 'DM Mono',monospace; letter-spacing:1.4px; }
-.announce-court-head strong { color:var(--lime); font:600 27px 'Space Grotesk',sans-serif; }
-.announce-court-head small { margin-left:auto; color:#c9d3cb; font:11px 'DM Mono',monospace; text-transform:uppercase; }
-.announce-teams { display:flex; align-items:center; gap:14px; }
-.announce-team { flex:1 1 0; min-width:0; list-style:none; margin:0; padding:0 0 0 10px; }
-.announce-team.team-a { border-left:3px solid var(--lime); }
-.announce-team.team-b { border-left:3px solid var(--coral); }
-.announce-team li { color:#f7f6ed; font-size:clamp(17px,1.7vw,24px); line-height:1.45; overflow-wrap:anywhere; }
-.announce-vs { color:#9caaa2; font:11px 'DM Mono',monospace; text-transform:uppercase; }
-.announce-waiting { display:flex; flex-wrap:wrap; justify-content:center; align-items:baseline; gap:8px 14px; margin-top:26px; padding-top:20px; border-top:1px solid #3a4941; }
-.announce-waiting span { color:#9caaa2; font:11px 'DM Mono',monospace; letter-spacing:1.4px; text-transform:uppercase; }
-.announce-waiting strong { color:#e9ece3; font:500 15px 'Space Grotesk',sans-serif; }
-.announce-hint { color:#6f7b74; font:11px 'DM Mono',monospace; margin-top:24px; }
-@media(max-width:640px) { .announce { padding:22px 18px 30px; } .announce-court-head strong { font-size:23px; } .announce-teams { gap:10px; } }
+/* Announce mode: the room-facing board. It reuses the main board's .court cards
+   four to a row and shows nothing else, so names stay as big and as readable as
+   they are in the app. The colour/margin resets undo the old lime-on-dark
+   treatment that would otherwise wash out these light cards. */
+.announce { display:block; overflow:auto; text-align:left; color:var(--ink); padding:28px 3vw 34px; }
+.announce .courts { width:100%; max-width:1680px; margin:0 auto; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; }
+.announce .court { min-height:0; padding:20px 22px 24px; }
+.announce .court-number strong { font-size:clamp(22px,1.7vw,30px); }
+.announce .court li { font-size:clamp(19px,1.5vw,27px); line-height:1.6; }
+/* A projected name must never be clipped, so wrap instead of the app's ellipsis. */
+.announce .court li > span:first-child { white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; }
+.announce .court .format { color:var(--muted); margin-top:18px; font-size:clamp(11px,0.85vw,14px); }
+@media(max-width:1200px) { .announce .courts { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:640px) { .announce { padding:16px 14px 22px; } .announce .courts { grid-template-columns:minmax(0,1fr); gap:12px; } }
