@@ -122,11 +122,9 @@ export function generateRound(
   /**
    * Build courts from the optimized selected group.
    */
-  const courts = buildAllCourts(
-  selected,
-  courtCount,
-  courtFormats,
-);
+  const courts = courtFormats && courtFormats.length > 0
+    ? buildAllCourts(selected, courtCount, courtFormats)
+    : buildBestFormatCourts(selected, courtCount);
 
   /**
    * Existing division-balancing logic is still useful after the
@@ -639,7 +637,7 @@ function generateSeparatedRound(
     );
 
     all.push(
-      ...buildBestDivisionCourts(
+      ...buildBestFormatCourts(
         selected,
         courtCountForDivision,
       ),
@@ -795,12 +793,13 @@ export function canSwapFormat(
 }
 
 /**
- * Compare legal formats as a complete set for this division before
- * building courts. This lets mixed doubles distribute a small gender
- * group across courts instead of automatically concentrating them on
- * one same-gender court.
+ * Compare legal formats as a complete set before building courts.
+ * Choosing them one by one can spend the larger gender group on
+ * same-gender courts first, leaving fewer players available for mixed.
+ * A small concentration penalty keeps the round from becoming all mixed
+ * while still allowing mixed courts when the player balance supports them.
  */
-function buildBestDivisionCourts(
+function buildBestFormatCourts(
   selected: Player[],
   courtCount: number,
 ): CourtAssignment[] {
