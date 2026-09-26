@@ -566,6 +566,9 @@ let timerTick = null;
 // instead of "Resume", which silently restarts from the top.
 let timerStarted = false;
 let alarmAudio = null;
+let alarmRepeat = null;
+let alarmActive = false;
+const activeAlarmTones = new Set();
 
 function formatClock(seconds) {
   const safe = Math.max(0, Math.round(seconds));
@@ -616,30 +619,54 @@ async function playRoundAlarm() {
     announceTimer(`Time — the ${ROUND_MINUTES} minute round is up. This browser does not support the timer alarm.`);
     return;
   }
-  const beeps = 8; // Two bursts of four, so a round ending mid-shuttle is heard.
-  try {
-    // A browser may suspend Web Audio while the tab is idle or in the
-    // background. Resume it at the deadline before scheduling the tones.
-    if (alarmAudio.state !== 'running') await alarmAudio.resume();
-    if (alarmAudio.state !== 'running') throw new Error('Audio context did not resume');
-    const start = alarmAudio.currentTime + 0.05;
-    for (let beep = 0; beep < beeps; beep++) {
-      const at = start + beep * 0.7 + Math.floor(beep / 4) * 0.9;
-      const tone = alarmAudio.createOscillator();
-      const volume = alarmAudio.createGain();
-      tone.type = 'square'; // Cuts through a hall full of shuttles.
-      tone.frequency.setValueAtTime(beep % 2 === 0 ? 880 : 660, at);
-      volume.gain.setValueAtTime(0, at);
-      volume.gain.linearRampToValueAtTime(0.3, at + 0.03);
-      volume.gain.setValueAtTime(0.3, at + 0.45);
-      volume.gain.linearRampToValueAtTime(0, at + 0.55);
-      tone.connect(volume).connect(alarmAudio.destination);
-      tone.start(at);
-      tone.stop(at + 0.6);
+  if (alarmActive) return;
+  alarmActive = true;
+
+  const scheduleBurst = async () => {
+    if (!alarmActive) return;
+    try {
+      // A browser may suspend Web Audio while the tab is idle or in the
+      // background. Resume it before every burst in case it was suspended.
+      if (alarmAudio.state !== 'running') await alarmAudio.resume();
+      if (!alarmActive) return; // Reset may have been pressed while resuming.
+      if (alarmAudio.state !== 'running') throw new Error('Audio context did not resume');
+
+      const start = alarmAudio.currentTime + 0.05;
+      for (let beep = 0; beep < 8; beep++) {
+        const at = start + beep * 0.7 + Math.floor(beep / 4) * 0.9;
+        const tone = alarmAudio.createOscillator();
+        const volume = alarmAudio.createGain();
+        tone.type = 'square'; // Cuts through a hall full of shuttles.
+        tone.frequency.setValueAtTime(beep % 2 === 0 ? 880 : 660, at);
+        volume.gain.setValueAtTime(0, at);
+        volume.gain.linearRampToValueAtTime(0.3, at + 0.03);
+        volume.gain.setValueAtTime(0.3, at + 0.45);
+        volume.gain.linearRampToValueAtTime(0, at + 0.55);
+        tone.connect(volume).connect(alarmAudio.destination);
+        activeAlarmTones.add(tone);
+        tone.addEventListener('ended', () => activeAlarmTones.delete(tone), { once: true });
+        tone.start(at);
+        tone.stop(at + 0.6);
+      }
+      // Repeat the two bursts every seven seconds until Reset is pressed.
+      alarmRepeat = setTimeout(scheduleBurst, 7000);
+    } catch {
+      stopRoundAlarm();
+      announceTimer(`Time — the ${ROUND_MINUTES} minute round is up. The alarm could not play; check that this tab and device are not muted.`);
     }
-  } catch {
-    announceTimer(`Time — the ${ROUND_MINUTES} minute round is up. The alarm could not play; check that this tab and device are not muted.`);
+  };
+
+  scheduleBurst();
+}
+
+function stopRoundAlarm() {
+  alarmActive = false;
+  if (alarmRepeat !== null) clearTimeout(alarmRepeat);
+  alarmRepeat = null;
+  for (const tone of activeAlarmTones) {
+    try { tone.stop(); } catch { /* The tone may have already ended. */ }
   }
+  activeAlarmTones.clear();
 }
 
 function stopRoundTimer() {
@@ -655,8 +682,8 @@ function tickRoundTimer() {
   }
   stopRoundTimer();
   renderRoundTimer();
-  playRoundAlarm();
   announceTimer(`Time — the ${ROUND_MINUTES} minute round is up.`);
+  playRoundAlarm();
 }
 
 function startRoundTimer() {
@@ -683,6 +710,7 @@ function toggleRoundTimer() {
 
 function resetRoundTimer() {
   stopRoundTimer();
+  stopRoundAlarm();
   timerRemaining = ROUND_SECONDS;
   timerStarted = false;
   announceTimer('');
