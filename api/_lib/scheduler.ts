@@ -8,7 +8,6 @@ import type {
 import {
   balanceDivisionsAcrossCourts,
   buildAllCourts,
-  canFieldFormat,
 } from './pairing.js';
 
 import { courtCostOf } from './pairing2.js';
@@ -807,41 +806,56 @@ function buildBestDivisionCourts(
 ): CourtAssignment[] {
   const men = selected.filter((player) => player.gender === 'MALE').length;
   const women = selected.length - men;
-  const formats: GameFormat[] = [
-    'MIXED_DOUBLES',
-    'MENS_DOUBLES',
-    'WOMENS_DOUBLES',
-  ];
   const candidates: GameFormat[][] = [];
-  const candidateLimit = 256;
+  const formatCounts = new Map<string, [number, number, number]>();
 
-  const search = (
-    remainingMen: number,
-    remainingWomen: number,
-    plan: GameFormat[],
-  ): void => {
-    if (candidates.length >= candidateLimit) return;
-    if (plan.length === courtCount) {
-      if (remainingMen === 0 && remainingWomen === 0) {
-        candidates.push([...plan]);
-      }
-      return;
-    }
+  // Enumerate feasible format counts directly. This avoids a bounded
+  // depth-first search accidentally considering mostly mixed plans first.
+  for (let mixed = 0; mixed <= courtCount; mixed++) {
+    const remainingMen = men - mixed * 2;
+    const remainingWomen = women - mixed * 2;
+    if (remainingMen < 0 || remainingWomen < 0) continue;
+    if (remainingMen % 4 !== 0 || remainingWomen % 4 !== 0) continue;
 
-    const courtsLeft = courtCount - plan.length;
-    if (remainingMen + remainingWomen !== courtsLeft * 4) return;
+    const mens = remainingMen / 4;
+    const womens = remainingWomen / 4;
+    if (mens + womens + mixed !== courtCount) continue;
 
-    for (const format of formats) {
-      const consumesMen = format === 'MIXED_DOUBLES' ? 2 : format === 'MENS_DOUBLES' ? 4 : 0;
-      const consumesWomen = format === 'MIXED_DOUBLES' ? 2 : format === 'WOMENS_DOUBLES' ? 4 : 0;
-      if (!canFieldFormat(format, remainingMen, remainingWomen)) continue;
-      plan.push(format);
-      search(remainingMen - consumesMen, remainingWomen - consumesWomen, plan);
-      plan.pop();
+    formatCounts.set(`${mens}:${womens}:${mixed}`, [mens, womens, mixed]);
+  }
+
+  const addPlan = (plan: GameFormat[]): void => {
+    const key = plan.join('|');
+    if (plan.length === courtCount && !candidates.some((candidate) => candidate.join('|') === key)) {
+      candidates.push(plan);
     }
   };
 
-  search(men, women, []);
+  for (const [mens, womens, mixed] of formatCounts.values()) {
+    const buckets: GameFormat[][] = [
+      Array(mens).fill('MENS_DOUBLES'),
+      Array(womens).fill('WOMENS_DOUBLES'),
+      Array(mixed).fill('MIXED_DOUBLES'),
+    ];
+
+    // Try a grouped order and several interleaved orders. The court
+    // builder consumes players in order, so these variants can change
+    // which eligible players land on each format.
+    addPlan(buckets.flat());
+    addPlan(buckets.flat().reverse());
+    for (let offset = 0; offset < buckets.length; offset++) {
+      const interleaved: GameFormat[] = [];
+      const positions = [0, 0, 0];
+      while (interleaved.length < courtCount) {
+        for (let step = 0; step < buckets.length; step++) {
+          const index = (step + offset) % buckets.length;
+          const format = buckets[index][positions[index]++];
+          if (format) interleaved.push(format);
+        }
+      }
+      addPlan(interleaved);
+    }
+  }
 
   if (candidates.length === 0) {
     return buildAllCourts(selected, courtCount, undefined);
@@ -852,8 +866,20 @@ function buildBestDivisionCourts(
   for (const plan of candidates) {
     const courts = buildAllCourts(selected, courtCount, plan);
     if (courts.length !== courtCount) continue;
-    const mixedCount = plan.filter((format) => format === 'MIXED_DOUBLES').length;
-    const score = courts.reduce((sum, court) => sum + courtCostOf(court), 0) - mixedCount * 5;
+    const counts = plan.reduce(
+      (result, format) => {
+        if (format === 'MENS_DOUBLES') result.mens++;
+        else if (format === 'WOMENS_DOUBLES') result.womens++;
+        else if (format === 'MIXED_DOUBLES') result.mixed++;
+        return result;
+      },
+      { mens: 0, womens: 0, mixed: 0 },
+    );
+    const formatConcentration =
+      counts.mens ** 2 + counts.womens ** 2 + counts.mixed ** 2;
+    const score =
+      courts.reduce((sum, court) => sum + courtCostOf(court), 0) +
+      formatConcentration * 10;
     if (score < bestScore) {
       best = courts;
       bestScore = score;
