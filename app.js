@@ -6,7 +6,7 @@ const apiBaseUrl = window.location.hostname === 'localhost' || window.location.h
 
 const DEMO_USERNAME = 'organizer';
 const DEMO_PASSWORD = 'badminton123';
-const SESSION_KEY = 'badminton-club-dummy-auth';
+const SESSION_KEY = 'badminton-club-dummy-auth'; const SELECTED_SESSION_KEY = 'badminton-club-selected-session';
 let appStarted = false;
 // Never keep demo credentials in the visible address bar or browser history.
 if (window.location.search) window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
@@ -81,7 +81,7 @@ function selectedSession() {
   return document.querySelector('#club-session').value;
 }
 
-function sessionLabel(session) {
+function rememberSelectedSession(sessionId) { try { localStorage.setItem(SELECTED_SESSION_KEY, sessionId); } catch { /* Storage unavailable. */ } } function sessionLabel(session) {
   return `${session.day} · Div ${session.divisions.join(' · Div ')} · ${session.location}`;
 }
 
@@ -158,14 +158,14 @@ function fillDivisionSelects() {
   const club = document.querySelector('#club-session');
   const board = document.querySelector('#board-session');
   const previousClub = club ? club.value : '';
-  const previousBoard = board ? board.value : '';
+  const previousBoard = board ? board.value : ''; let savedSession = ''; try { savedSession = localStorage.getItem(SELECTED_SESSION_KEY) || ''; } catch { /* Storage unavailable. */ }
   const grouped = sessionGroups(clubSessions);
   document.querySelector('#club-session').innerHTML = grouped;
   document.querySelector('#board-session').innerHTML = grouped;
   renderSessionMenus();
   updateSessionTriggers();
   const firstId = clubSessions[0] ? clubSessions[0].id : '';
-  if (club) club.value = clubSessions.some(item => item.id === previousClub) ? previousClub : firstId;
+  if (club) club.value = clubSessions.some(item => item.id === previousClub) ? previousClub : (clubSessions.some(item => item.id === savedSession) ? savedSession : firstId);
   if (board) board.value = clubSessions.some(item => item.id === (previousBoard || previousClub)) ? (previousBoard || previousClub) : (club ? club.value : firstId);
   updateSessionTriggers();
 }
@@ -242,7 +242,7 @@ function selectSession(sessionId) {
   const board = document.querySelector('#board-session');
   const club = document.querySelector('#club-session');
   if (board) board.value = sessionId;
-  if (club) club.value = sessionId;
+  if (club) club.value = sessionId; rememberSelectedSession(sessionId);
   closeSessionMenus();
   updateSessionTriggers();
   renderScheduleNote();
@@ -824,13 +824,13 @@ renderViews();
 initializeRoster();
 setupSessionDropdowns();
 document.querySelector('#club-session').addEventListener('change', () => {
-  document.querySelector('#board-session').value = selectedSession();
+  document.querySelector('#board-session').value = selectedSession(); rememberSelectedSession(selectedSession());
   renderScheduleNote();
   renderCheckins();
   initializeLatestRound();
 });
 document.querySelector('#board-session').addEventListener('change', event => {
-  document.querySelector('#club-session').value = event.target.value;
+  document.querySelector('#club-session').value = event.target.value; rememberSelectedSession(event.target.value);
   renderScheduleNote();
   renderCheckins();
   initializeLatestRound();
