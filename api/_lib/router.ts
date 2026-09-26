@@ -311,26 +311,51 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
     where rp.round_id = ${roundId} and rp.player_id = ${outId}`;
   if ((outgoing as any[]).length === 0) { sendJson(res, 400, { message: 'That player is not on a court' }); return; }
   const out = (outgoing as any[])[0];
-  const waiting = await sql`select exists (select 1 from venue_check_ins ci
-    where ci.session_id = ${sessionId} and ci.player_id = ${inId} and ci.sit_out_rounds = 0
-    and not exists (select 1 from venue_round_players rp where rp.round_id = ${roundId} and rp.player_id = ci.player_id)) as ok`;
-  if ((waiting as any[])[0]?.ok !== true) {
-    sendJson(res, 400, { message: 'Replacement must be waiting and not sitting out' });
-    return;
-  }
-  const g = await sql`select gender from players where id = ${inId}`;
+    const g = await sql`select gender from players where id = ${inId}`;
   if ((g as any[]).length === 0) { sendJson(res, 400, { message: 'Replacement player not found' }); return; }
-  if (!canSwapFormat(out.format, out.gender, (g as any[])[0].gender)) {
-    sendJson(res, 400, { message: "Replacement does not match this court's format" });
-    return;
+  const incomingGender = (g as any[])[0].gender;
+  const assignedIncoming = await sql`select court_number, format, team
+    from venue_round_players where round_id = ${roundId} and player_id = ${inId}`;
+
+  if ((assignedIncoming as any[]).length > 0) {
+    const incoming = (assignedIncoming as any[])[0];
+    if (Number(incoming.court_number) === Number(out.court_number)) {
+      sendJson(res, 400, { message: 'Choose a player from another court or the waiting list' });
+      return;
+    }
+    if (!canSwapFormat(out.format, out.gender, incomingGender)
+      || !canSwapFormat(incoming.format, incomingGender, out.gender)) {
+      sendJson(res, 400, { message: 'The players do not match both courts’ formats' });
+      return;
+    }
+
+    await sql.begin(async (tx: any) => {
+      await tx`delete from venue_round_players
+        where round_id = ${roundId} and player_id in (${outId}, ${inId})`;
+      await tx`insert into venue_round_players (round_id, court_number, format, team, player_id)
+        values (${roundId}, ${out.court_number}, ${out.format}, ${out.team}, ${inId}),
+          (${roundId}, ${incoming.court_number}, ${incoming.format}, ${incoming.team}, ${outId})`;
+    });
+  } else {
+    const waiting = await sql`select exists (select 1 from venue_check_ins ci
+      where ci.session_id = ${sessionId} and ci.player_id = ${inId} and ci.sit_out_rounds = 0
+      and not exists (select 1 from venue_round_players rp where rp.round_id = ${roundId} and rp.player_id = ci.player_id)) as ok`;
+    if ((waiting as any[])[0]?.ok !== true) {
+      sendJson(res, 400, { message: 'Replacement must be waiting and not sitting out' });
+      return;
+    }
+    if (!canSwapFormat(out.format, out.gender, incomingGender)) {
+      sendJson(res, 400, { message: "Replacement does not match this court's format" });
+      return;
+    }
+    await sql`delete from venue_round_players where round_id = ${roundId} and player_id = ${outId}`;
+    await sql`insert into venue_round_players (round_id, court_number, format, team, player_id)
+      values (${roundId}, ${out.court_number}, ${out.format}, ${out.team}, ${inId})`;
+    await sql`update players set rounds_waiting = rounds_waiting + 1 where id = ${outId}`;
+    await sql`update players set rounds_waiting = 0 where id = ${inId}`;
   }
-  await sql`delete from venue_round_players where round_id = ${roundId} and player_id = ${outId}`;
-  await sql`insert into venue_round_players (round_id, court_number, format, team, player_id)
-    values (${roundId}, ${out.court_number}, ${out.format}, ${out.team}, ${inId})`;
-  await sql`update players set rounds_waiting = rounds_waiting + 1 where id = ${outId}`;
-  await sql`update players set rounds_waiting = 0 where id = ${inId}`;
   const nightId = await openNightId(sessionId);
-  if (nightId) {
+if (nightId) {
     await syncNightGameCounts(sessionId, nightId);
     await syncPairCounts(nightId);
   }
