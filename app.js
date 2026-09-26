@@ -746,6 +746,20 @@ async function endClubNight() {
   await initializeRoster();
 }
 
+// Build one court-format entry per court in the selected session.
+// Keeps the classic 2 men's / 2 women's / 2 mixed pattern and fills any
+// remaining courts with open doubles, so a session configured with 8
+// courts actually fields 8 courts (previously a hardcoded 7-entry list
+// capped every round at 7 courts).
+function courtFormatsForSession() {
+  const session = clubSessions.find(item => item.id === selectedSession());
+  const courts = Math.min(20, Math.max(1, session ? Number(session.courts) || 6 : 6));
+  const pattern = ['MENS_DOUBLES', 'MENS_DOUBLES', 'WOMENS_DOUBLES', 'WOMENS_DOUBLES', 'MIXED_DOUBLES', 'MIXED_DOUBLES'];
+  const formats = pattern.slice(0, courts);
+  while (formats.length < courts) formats.push('OPEN_DOUBLES');
+  return formats;
+}
+
 async function generateNextRound() {
   const button = document.querySelector('#next-round-button');
   button.dataset.busy = 'true';
@@ -762,7 +776,7 @@ async function generateNextRound() {
         sessionId: selectedSession(),
         players: [],
         separateDivisions: document.querySelector('#separate-divisions').checked,
-        courtFormats: ['MENS_DOUBLES', 'MENS_DOUBLES', 'WOMENS_DOUBLES', 'WOMENS_DOUBLES', 'MIXED_DOUBLES', 'MIXED_DOUBLES', 'OPEN_DOUBLES']
+        courtFormats: courtFormatsForSession()
       })
     });
     if (!response.ok) throw new Error(`API returned ${response.status}`);

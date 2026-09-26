@@ -62,16 +62,20 @@ export function generateRound(
       ? DEFAULT_COURTS
       : courtFormats.length;
 
-  const cap =
+  // When the session defines its court count (maxCourts), the session
+  // configuration is authoritative — a stale or shorter courtFormats
+  // list must not silently shrink the round below the venue's courts.
+  const courtCount =
     maxCourts && maxCourts > 0
-      ? maxCourts
-      : DEFAULT_COURTS;
-
-  const courtCount = Math.min(
-    cap,
-    requested,
-    Math.floor(active.length / 4),
-  );
+      ? Math.min(
+          maxCourts,
+          Math.floor(active.length / 4),
+        )
+      : Math.min(
+          DEFAULT_COURTS,
+          requested,
+          Math.floor(active.length / 4),
+        );
 
   if (courtCount === 0) {
     return {
