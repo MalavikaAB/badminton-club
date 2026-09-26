@@ -9,8 +9,9 @@ import {
   balanceDivisionsAcrossCourts,
   buildAllCourts,
   canFieldFormat,
-  courtCostOf,
 } from './pairing.js';
+
+import { courtCostOf } from './pairing2.js';
 
 const DEFAULT_COURTS = 6;
 
