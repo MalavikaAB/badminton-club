@@ -1,4 +1,0 @@
-target/
-.env
-*.dump
-*.sql.bak

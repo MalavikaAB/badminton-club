@@ -8,9 +8,8 @@ The whole app is **one Vercel project** — static frontend + serverless API:
 | Backend (API) | TypeScript serverless functions | Vercel Functions (`api/`) |
 | Database | Supabase PostgreSQL | Supabase |
 
-> The old Java/Spring backend that ran on Render has been replaced by
-> `api/**/*.ts`. It is kept in `backend/` for reference only — it is no longer
-> deployed. Vercel does not support Java.
+> The old Java/Spring backend that ran on Render has been removed from the
+> repository. `api/**/*.ts` is the only backend; Vercel does not support Java.
 
 ---
 
@@ -26,8 +25,7 @@ The whole app is **one Vercel project** — static frontend + serverless API:
 
 > You don't need to run any SQL by hand — `api/_lib/schema.ts` creates the
 > `players`, `venue_*` tables and seeds the weekday sessions automatically on
-> the first request. `backend/src/main/resources/supabase-seed-players.sql`
-> is an *optional* script for 300 dummy players (run it in the SQL Editor if you want them).
+> the first request.
 
 **Use the pooler (port 6543), not the direct connection (5432).** Serverless
 functions open many short-lived connections; the direct port will exhaust
@@ -187,6 +185,6 @@ request after idle (~300–800 ms), then it is warm. Keeping the pooler URI
 
 ## Security note
 
-`backend/.env` and `.env.local` contain the real Supabase password and are
-gitignored. Never commit them. In production the password lives only in
-Vercel's environment variables (encrypted).
+`.env.local` contains the real Supabase password and is gitignored. Never
+commit it. In production the password lives only in Vercel's environment
+variables (encrypted).

@@ -2,18 +2,23 @@
 
 A web-based badminton club night board and organiser tool.
 
-## Planned stack
+## Stack
 
-- Java 21 and Spring Boot backend
-- Next.js frontend
-- PostgreSQL persistence
-- Scheduler domain module independent from the web layer
-
-## First slice
-
-The initial project includes a scheduler domain model and a small simulator target. The scheduler creates six courts from a configurable format template and keeps players who are not selected in a waiting list.
+- TypeScript serverless API (Vercel Functions) in `api/`
+- Static HTML/CSS/JS frontend (`index.html`, `app.js`, `styles.css`)
+- Supabase PostgreSQL persistence
+- Scheduler and pairing logic in `api/_lib/scheduler.ts` and `api/_lib/pairing.ts`
 
 ## Project layout
 
-- `backend/` Spring Boot API and scheduler domain
-- `frontend/` board and organiser web client (to be added)
+- `api/` — Vercel serverless entry point and `api/_lib/` modules:
+  routing (`router.ts`), database access (`repo.ts`, `repo2.ts`, `db.ts`,
+  `latest.ts`), schema bootstrap (`schema.ts`), and the round scheduler
+  (`scheduler.ts`, `pairing.ts`, `pairing2.ts`)
+- Root static files — the board and organiser web client
+
+See `DEPLOYMENT.md` for setup and deployment steps.
+
+> The project previously shipped a Java/Spring Boot backend on Render.
+> It has been removed; all development continues on the TypeScript API.
+

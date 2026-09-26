@@ -671,15 +671,15 @@ function resetRoundTimer() {
   renderRoundTimer();
 }
 
-// Mirrors the backend rule in ClubNightController.canSwap: open doubles takes
-// anyone, the gender-specific formats need a replacement of the same gender or
-// the court stops being a legal men's/women's/mixed line-up.
+// Mirrors the API rule in api/_lib/scheduler.ts canSwapFormat: open doubles
+// takes anyone, the gender-specific formats need a replacement of the same
+// gender or the court stops being a legal men's/women's/mixed line-up.
 function canReplaceIn(formatKey, outgoingGender, incomingGender) {
   return formatKey === 'OPEN_DOUBLES' || outgoingGender === incomingGender;
 }
 
-// Spring sends the rejection reason as {"message":"..."}; show that instead of
-// the raw JSON blob so an organiser can see why the swap was refused.
+// The API returns the rejection reason as {"message":"..."}; show that
+// instead of the raw JSON blob so an organiser can see why the swap was refused.
 async function readErrorMessage(response) {
   const body = await response.text();
   try {
@@ -688,7 +688,7 @@ async function readErrorMessage(response) {
   } catch {
     // Not JSON - fall through to the hint below.
   }
-  // A backend built without server.error.include-message strips the reason, so
+  // An empty error body gives no reason, so
   // name the likeliest cause rather than dumping an opaque error document.
   return 'Could not make that swap. Reload the board in case another device has moved on to the next round, then try again.';
 }
