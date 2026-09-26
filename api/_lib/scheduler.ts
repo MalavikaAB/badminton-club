@@ -8,6 +8,8 @@ import type {
 import {
   balanceDivisionsAcrossCourts,
   buildAllCourts,
+  canFieldFormat,
+  courtCostOf,
 } from './pairing.js';
 
 const DEFAULT_COURTS = 6;
@@ -637,10 +639,9 @@ function generateSeparatedRound(
     );
 
     all.push(
-      ...buildAllCourts(
+      ...buildBestDivisionCourts(
         selected,
         courtCountForDivision,
-        undefined,
       ),
     );
   }
@@ -791,4 +792,72 @@ export function canSwapFormat(
   }
 
   return outgoing === incoming;
+}
+
+/**
+ * Compare legal formats as a complete set for this division before
+ * building courts. This lets mixed doubles distribute a small gender
+ * group across courts instead of automatically concentrating them on
+ * one same-gender court.
+ */
+function buildBestDivisionCourts(
+  selected: Player[],
+  courtCount: number,
+): CourtAssignment[] {
+  const men = selected.filter((player) => player.gender === 'MALE').length;
+  const women = selected.length - men;
+  const formats: GameFormat[] = [
+    'MIXED_DOUBLES',
+    'MENS_DOUBLES',
+    'WOMENS_DOUBLES',
+  ];
+  const candidates: GameFormat[][] = [];
+  const candidateLimit = 256;
+
+  const search = (
+    remainingMen: number,
+    remainingWomen: number,
+    plan: GameFormat[],
+  ): void => {
+    if (candidates.length >= candidateLimit) return;
+    if (plan.length === courtCount) {
+      if (remainingMen === 0 && remainingWomen === 0) {
+        candidates.push([...plan]);
+      }
+      return;
+    }
+
+    const courtsLeft = courtCount - plan.length;
+    if (remainingMen + remainingWomen !== courtsLeft * 4) return;
+
+    for (const format of formats) {
+      const consumesMen = format === 'MIXED_DOUBLES' ? 2 : format === 'MENS_DOUBLES' ? 4 : 0;
+      const consumesWomen = format === 'MIXED_DOUBLES' ? 2 : format === 'WOMENS_DOUBLES' ? 4 : 0;
+      if (!canFieldFormat(format, remainingMen, remainingWomen)) continue;
+      plan.push(format);
+      search(remainingMen - consumesMen, remainingWomen - consumesWomen, plan);
+      plan.pop();
+    }
+  };
+
+  search(men, women, []);
+
+  if (candidates.length === 0) {
+    return buildAllCourts(selected, courtCount, undefined);
+  }
+
+  let best: CourtAssignment[] | null = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const plan of candidates) {
+    const courts = buildAllCourts(selected, courtCount, plan);
+    if (courts.length !== courtCount) continue;
+    const mixedCount = plan.filter((format) => format === 'MIXED_DOUBLES').length;
+    const score = courts.reduce((sum, court) => sum + courtCostOf(court), 0) - mixedCount * 5;
+    if (score < bestScore) {
+      best = courts;
+      bestScore = score;
+    }
+  }
+
+  return best ?? buildAllCourts(selected, courtCount, undefined);
 }
