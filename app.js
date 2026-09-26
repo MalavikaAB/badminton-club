@@ -696,25 +696,28 @@ async function readErrorMessage(response) {
 function openSwapModal(outPlayerId) {
   const court = rounds.find(item => item.players.some(player => player.id === outPlayerId));
   const outgoing = court?.players.find(player => player.id === outPlayerId);
-  // Only offer players who could legally take this court: the backend rejects a
-  // woman for a men's line-up (and vice versa), so don't list them at all.
-  const replacements = waiting.filter(player => !player.sittingOut
-    && (!outgoing || canReplaceIn(court.formatKey, outgoing.gender, player.gender)));
+  const onCourtReplacements = rounds
+    .filter(otherCourt => otherCourt.court !== court?.court)
+    .flatMap(otherCourt => otherCourt.players
+      .filter(player => player.id !== outPlayerId
+        && (!outgoing || canReplaceIn(court.formatKey, outgoing.gender, player.gender))
+        && (!outgoing || canReplaceIn(otherCourt.formatKey, player.gender, outgoing.gender)))
+      .map(player => ({ ...player, source: 'Court ' + otherCourt.court })));
+  const waitingReplacements = waiting
+    .filter(player => !player.sittingOut
+      && (!outgoing || canReplaceIn(court.formatKey, outgoing.gender, player.gender)))
+    .map(player => ({ ...player, source: 'Waiting' }));
+  const replacements = [...onCourtReplacements, ...waitingReplacements];
   swapOutPlayerId = outPlayerId;
   document.querySelector('#swap-copy').textContent = outgoing
-    ? court.formatKey === 'OPEN_DOUBLES'
-      ? `Take ${outgoing.name} off court and send in someone waiting.`
-      : `Take ${outgoing.name} off court — ${court.format} needs another ${outgoing.gender === 'MALE' ? 'man' : 'woman'}.`
+    ? 'Choose a replacement for ' + outgoing.name + '. A player on another court will swap places; a waiting player will take their place.'
     : 'Pick someone waiting to come on court.';
   document.querySelector('#swap-options').innerHTML = replacements.length
-    ? replacements.map(player => `<li><button type="button" data-swap-in="${player.id}">${player.name}<small>Div ${player.division} · ${player.gamesPlayed} games tonight</small></button></li>`).join('')
-    : waiting.some(player => !player.sittingOut)
-      ? `<li class="empty-state">Nobody waiting suits ${court?.format || 'this court'} — it needs a ${outgoing?.gender === 'MALE' ? 'man' : 'woman'} to replace ${outgoing?.name || 'that player'}.</li>`
-      : '<li class="empty-state">Nobody is waiting who can come on.</li>';
+    ? replacements.map(player => '<li><button type="button" data-swap-in="' + player.id + '">' + player.name + '<small>' + player.source + ' · Div ' + player.division + ' · ' + player.gamesPlayed + ' games tonight</small></button></li>').join('')
+    : '<li class="empty-state">Nobody available can replace ' + (outgoing?.name || 'this player') + ' on this ' + (court?.format || '') + ' court.</li>';
   document.querySelector('#swap-modal').classList.remove('hidden');
   document.querySelectorAll('[data-swap-in]').forEach(button => button.addEventListener('click', () => swapPlayers(button.dataset.swapIn)));
 }
-
 function closeSwapModal() {
   swapOutPlayerId = null;
   document.querySelector('#swap-modal').classList.add('hidden');
