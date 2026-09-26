@@ -595,17 +595,33 @@ function announceTimer(message) {
 // to play a few seconds later.
 function unlockAlarmAudio() {
   const AudioCtor = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtor) return;
+  if (!AudioCtor) return false;
   try {
     if (!alarmAudio) alarmAudio = new AudioCtor();
     if (alarmAudio.state === 'suspended') alarmAudio.resume().catch(() => {});
-  } catch { /* No audio here: the clock still counts down and the board still pulses. */ }
+    // Start a silent source during the Start Timer click. Some browsers require
+    // audio to be initiated directly by a user gesture before later playback.
+    const prime = alarmAudio.createOscillator();
+    const quiet = alarmAudio.createGain();
+    quiet.gain.value = 0;
+    prime.connect(quiet).connect(alarmAudio.destination);
+    prime.start();
+    prime.stop(alarmAudio.currentTime + 0.01);
+    return true;
+  } catch { return false; }
 }
 
-function playRoundAlarm() {
-  if (!alarmAudio) return;
+async function playRoundAlarm() {
+  if (!alarmAudio) {
+    announceTimer(`Time — the ${ROUND_MINUTES} minute round is up. This browser does not support the timer alarm.`);
+    return;
+  }
   const beeps = 8; // Two bursts of four, so a round ending mid-shuttle is heard.
   try {
+    // A browser may suspend Web Audio while the tab is idle or in the
+    // background. Resume it at the deadline before scheduling the tones.
+    if (alarmAudio.state !== 'running') await alarmAudio.resume();
+    if (alarmAudio.state !== 'running') throw new Error('Audio context did not resume');
     const start = alarmAudio.currentTime + 0.05;
     for (let beep = 0; beep < beeps; beep++) {
       const at = start + beep * 0.7 + Math.floor(beep / 4) * 0.9;
@@ -621,7 +637,9 @@ function playRoundAlarm() {
       tone.start(at);
       tone.stop(at + 0.6);
     }
-  } catch { /* An alarm that fails to play must not break the board. */ }
+  } catch {
+    announceTimer(`Time — the ${ROUND_MINUTES} minute round is up. The alarm could not play; check that this tab and device are not muted.`);
+  }
 }
 
 function stopRoundTimer() {
