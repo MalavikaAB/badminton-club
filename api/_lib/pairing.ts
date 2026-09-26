@@ -244,31 +244,53 @@ function findFallbackFormat(
  * A pure division court is not considered imbalanced because
  * there is nothing to balance within that court.
  */
-function divisionSpread(
-  court: CourtAssignment,
-): number {
-  const counts = new Map<
-    string,
-    number
-  >();
+function divisionCompositionScore(court: CourtAssignment): number {
+  const counts = new Map<string, number>();
 
   for (const player of court.players) {
     counts.set(
       player.division,
-      (counts.get(
-        player.division,
-      ) ?? 0) + 1,
+      (counts.get(player.division) ?? 0) + 1,
     );
   }
 
-  if (counts.size < 2) {
+  const sizes = [...counts.values()].sort((a, b) => b - a);
+
+  // 2 + 2 — HIGHEST PREFERENCE
+  if (
+    sizes.length === 2 &&
+    sizes[0] === 2 &&
+    sizes[1] === 2
+  ) {
     return 0;
   }
 
-  return (
-    Math.max(...counts.values()) -
-    Math.min(...counts.values())
-  );
+  // 4 from the same division — SECOND PREFERENCE
+  if (sizes.length === 1) {
+    return 1;
+  }
+
+  // 3 + 1 — THIRD PREFERENCE
+  if (
+    sizes.length === 2 &&
+    sizes[0] === 3 &&
+    sizes[1] === 1
+  ) {
+    return 2;
+  }
+
+  // 2 + 1 + 1
+  if (
+    sizes.length === 3 &&
+    sizes[0] === 2 &&
+    sizes[1] === 1 &&
+    sizes[2] === 1
+  ) {
+    return 3;
+  }
+
+  // 1 + 1 + 1 + 1
+  return 4;
 }
 
 /**
@@ -306,12 +328,10 @@ export function balanceDivisionsAcrossCourts(
         const cj = courts[j];
 
         const before =
-          divisionSpread(ci) +
-          divisionSpread(cj);
+  divisionCompositionScore(ci) +
+  divisionCompositionScore(cj);
 
-        if (before === 0) {
-          continue;
-        }
+        if (before === 0) continue;
 
         let swapped = false;
 
@@ -356,14 +376,8 @@ export function balanceDivisionsAcrossCourts(
             }
 
             const after =
-              divisionSpread({
-                ...ci,
-                players: nextI,
-              }) +
-              divisionSpread({
-                ...cj,
-                players: nextJ,
-              });
+  divisionCompositionScore({ ...ci, players: nextI }) +
+  divisionCompositionScore({ ...cj, players: nextJ });
 
             if (after >= before) {
               continue;
