@@ -555,10 +555,11 @@ function renderWaiting() {
 // deadline rather than counting ticks, so a throttled background tab — or the
 // board left on the announce overlay — still finishes on time, and the alarm is
 // synthesised with the Web Audio API so the board needs no audio file.
-const ROUND_MINUTES = Number(document.querySelector('#round-timer').dataset.minutes) || 15;
-const ROUND_SECONDS = ROUND_MINUTES * 60;
+const DEFAULT_ROUND_MINUTES = Number(document.querySelector('#round-timer').dataset.minutes) || 15;
+let roundMinutes = DEFAULT_ROUND_MINUTES;
+const roundSeconds = () => roundMinutes * 60;
 let timerDeadline = 0;
-let timerRemaining = ROUND_SECONDS;
+let timerRemaining = roundSeconds();
 let timerTick = null;
 // True from the first start until a reset. Pausing can leave the countdown at
 // the full round length, and without this the widget would read as though the
@@ -584,7 +585,8 @@ function renderRoundTimer() {
     : finished
       ? 'Start again'
       : timerStarted ? 'Resume' : 'Start timer';
-  document.querySelector('#timer-reset').hidden = !running && !timerStarted && timerRemaining === ROUND_SECONDS;
+  document.querySelector('#timer-reset').hidden = !running && !timerStarted && timerRemaining === roundSeconds();
+  document.querySelector('#timer-minutes').disabled = timerStarted;
   document.querySelector('#round-timer').classList.toggle('is-running', running);
   document.querySelector('#round-timer').classList.toggle('is-finished', finished);
 }
@@ -616,7 +618,7 @@ function unlockAlarmAudio() {
 
 async function playRoundAlarm() {
   if (!alarmAudio) {
-    announceTimer(`Time — the ${ROUND_MINUTES} minute round is up. This browser does not support the timer alarm.`);
+    announceTimer(`Time — the ${roundMinutes} minute round is up. This browser does not support the timer alarm.`);
     return;
   }
   if (alarmActive) return;
@@ -652,7 +654,7 @@ async function playRoundAlarm() {
       alarmRepeat = setTimeout(scheduleBurst, 7000);
     } catch {
       stopRoundAlarm();
-      announceTimer(`Time — the ${ROUND_MINUTES} minute round is up. The alarm could not play; check that this tab and device are not muted.`);
+      announceTimer(`Time — the ${roundMinutes} minute round is up. The alarm could not play; check that this tab and device are not muted.`);
     }
   };
 
@@ -682,18 +684,18 @@ function tickRoundTimer() {
   }
   stopRoundTimer();
   renderRoundTimer();
-  announceTimer(`Time — the ${ROUND_MINUTES} minute round is up.`);
+  announceTimer(`Time — the ${roundMinutes} minute round is up.`);
   playRoundAlarm();
 }
 
 function startRoundTimer() {
-  if (timerRemaining === 0) timerRemaining = ROUND_SECONDS; // Start again after the alarm.
+  if (timerRemaining === 0) timerRemaining = roundSeconds(); // Start again after the alarm.
   timerDeadline = Date.now() + timerRemaining * 1000;
   stopRoundTimer();
   timerTick = setInterval(tickRoundTimer, 250);
   timerStarted = true;
   unlockAlarmAudio();
-  announceTimer(`${ROUND_MINUTES} minute round started.`);
+  announceTimer(`${roundMinutes} minute round started.`);
   renderRoundTimer();
 }
 
@@ -711,9 +713,28 @@ function toggleRoundTimer() {
 function resetRoundTimer() {
   stopRoundTimer();
   stopRoundAlarm();
-  timerRemaining = ROUND_SECONDS;
+  timerRemaining = roundSeconds();
   timerStarted = false;
   announceTimer('');
+  renderRoundTimer();
+}
+
+function changeRoundDuration() {
+  if (timerStarted) return;
+  const input = document.querySelector('#timer-minutes');
+  if (input.value.trim() === '') {
+    input.value = String(roundMinutes);
+    return;
+  }
+  const requestedMinutes = Number(input.value);
+  if (!Number.isInteger(requestedMinutes)) {
+    input.value = String(roundMinutes);
+    return;
+  }
+  roundMinutes = Math.min(180, Math.max(1, requestedMinutes));
+  input.value = String(roundMinutes);
+  timerRemaining = roundSeconds();
+  announceTimer(`Timer set to ${roundMinutes} minutes.`);
   renderRoundTimer();
 }
 
@@ -968,6 +989,7 @@ document.querySelector('#next-round-button').addEventListener('click', generateN
 document.querySelector('#announce-button').addEventListener('click', announce);
 document.querySelector('#timer-toggle').addEventListener('click', toggleRoundTimer);
 document.querySelector('#timer-reset').addEventListener('click', resetRoundTimer);
+document.querySelector('#timer-minutes').addEventListener('change', changeRoundDuration);
 document.querySelectorAll('[data-logout]').forEach(button => button.addEventListener('click', () => {
   try { sessionStorage.removeItem(SESSION_KEY); } catch { /* session-only demo auth */ }
   appStarted = false;

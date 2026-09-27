@@ -59,10 +59,12 @@
         <span class="label">ROUND</span>
         <strong id="round-number">00</strong>
         <span class="muted">20 min games</span>
-        <!-- Round clock for the organiser: start it as the players walk on and
-             an alarm tells the room when the round is up. data-minutes is the
-             round length, so a different game length is a one-attribute change. -->
+        <!-- Round clock for the organiser; defaults to 15 minutes and can be
+             adjusted before starting each round. -->
         <div class="round-timer" id="round-timer" data-minutes="15">
+          <label class="timer-duration" for="timer-minutes">Minutes
+            <input id="timer-minutes" type="number" min="1" max="180" step="1" value="15" inputmode="numeric">
+          </label>
           <span class="round-timer-clock" id="timer-display" role="timer" aria-label="Round timer">15:00</span>
           <button type="button" class="secondary-button timer-button" id="timer-toggle">Start timer</button>
           <button type="button" class="secondary-button timer-button" id="timer-reset" hidden>Reset</button>
