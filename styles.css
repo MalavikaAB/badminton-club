@@ -103,12 +103,16 @@ h1,h2,p { margin:0; } h1 { font-size:clamp(34px,5vw,64px); letter-spacing:-2px; 
 .schedule-note { color:var(--green); font:11px 'DM Mono'; margin:-12px 0 20px; }
 .form-row,.player-form { display:flex; flex-wrap:wrap; gap:14px; align-items:end; margin-bottom:24px; }
 label { display:grid; gap:7px; color:var(--muted); font:11px 'DM Mono'; text-transform:uppercase; }
-input,select { min-height:42px; border:1px solid var(--line); background:var(--panel); color:var(--ink); font:15px 'Space Grotesk'; padding:9px 11px; text-transform:none; }
+input,select { min-height:42px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--ink); font:15px 'Space Grotesk'; padding:9px 11px; text-transform:none; transition:border-color .15s, box-shadow .15s; }
+input:focus,select:focus { outline:none; border-color:var(--green); box-shadow:0 0 0 3px rgba(27,107,75,.12); }
+select { appearance:none; padding-right:38px; background-image:linear-gradient(45deg,transparent 50%,var(--green) 50%),linear-gradient(135deg,var(--green) 50%,transparent 50%); background-position:calc(100% - 17px) 18px,calc(100% - 12px) 18px; background-size:5px 5px,5px 5px; background-repeat:no-repeat; }
 .player-form input { min-width:220px; }
 .player-form .primary-button { width:auto; min-height:42px; }
 .checkin-toolbar { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); padding:15px 0; margin-bottom:4px; }
 .checkin-toolbar strong { font-size:18px; }
-.player-list,.directory-list { max-width:760px; }
+.player-list { max-width:760px; }
+.directory-list { max-width:920px; }
+#players-view .player-form { width:fit-content; padding:18px; margin-top:8px; border:1px solid var(--line); border-radius:14px; background:rgba(255,253,247,.7); box-shadow:0 14px 30px -28px rgba(24,34,30,.7); }
 .venues-list { display:flex; flex-direction:column; gap:14px; max-width:860px; }
 .venue-card { background:var(--panel); border:1px solid var(--line); padding:18px 20px; display:flex; flex-direction:column; gap:12px; }
 .venue-card.inactive { opacity:.65; }
@@ -129,12 +133,16 @@ input,select { min-height:42px; border:1px solid var(--line); background:var(--p
    step larger than the player-directory rows that share the layout above. */
 .checkin-player { font-size:19px; }
 .checkin-player small,.directory-row small { color:var(--muted); font:11px 'DM Mono'; margin-left:auto; }
-.directory-row > span { display:flex; flex-direction:column; gap:5px; }
-.row-actions { display:flex; flex-direction:row; gap:10px; margin-left:auto; align-items:center; }
-.edit-button { border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--green); cursor:pointer; padding:5px 0; }
-.remove-button { border:0; border-bottom:1px solid var(--coral); background:transparent; color:var(--coral); cursor:pointer; padding:5px 0; }
+.directory-row { min-height:76px; padding:16px 18px; margin-bottom:10px; border:1px solid var(--line); border-radius:12px; background:var(--panel); box-shadow:0 10px 24px -26px rgba(24,34,30,.8); }
+.directory-row > span:first-child { display:flex; flex-direction:column; gap:5px; min-width:0; }
+.directory-row strong { font-size:18px; line-height:1.1; }
+.directory-row small { margin-left:0; font-size:12px; }
+.row-actions { display:flex; flex-direction:row; gap:14px; margin-left:auto; align-items:center; flex:0 0 auto; }
+.edit-button,.remove-button { border:0; background:transparent; cursor:pointer; padding:6px 0; font:600 14px 'Space Grotesk'; }
+.edit-button { color:var(--green); border-bottom:1px solid rgba(27,107,75,.35); }
+.remove-button { color:var(--coral); border-bottom:1px solid rgba(231,111,81,.4); }
 .empty-state { color:var(--muted); padding:25px 0; }
-@media(max-width:570px) { .tabs { gap:18px; margin:0 -18px 28px; padding:0 18px; overflow-x:auto; scrollbar-width:none; }.tabs::-webkit-scrollbar { display:none; }.tab { flex:0 0 auto; }.nav-logout { margin-left:0; }.checkin-player,.directory-row { align-items:flex-start; flex-wrap:wrap; }.checkin-player small,.directory-row small { margin-left:32px; width:100%; }.player-form > * { width:100%; }.player-form input { min-width:0; width:100%; }.player-form .primary-button { width:100%; } }
+@media(max-width:570px) { .tabs { gap:18px; margin:0 -18px 28px; padding:0 18px; overflow-x:auto; scrollbar-width:none; }.tabs::-webkit-scrollbar { display:none; }.tab { flex:0 0 auto; }.nav-logout { margin-left:0; }.checkin-player,.directory-row { align-items:flex-start; flex-wrap:wrap; }.checkin-player small { margin-left:32px; width:100%; }.directory-row small { margin-left:0; width:auto; }.player-form > * { width:100%; }.player-form input { min-width:0; width:100%; }.player-form .primary-button { width:100%; } #players-view .player-form { width:100%; } }
 .heading-actions { display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
 .danger-button { color:var(--coral); border-bottom-color:var(--coral); }
 /* Row actions (Swap / Break / Cancel) sit inside single-line flex rows, so the
