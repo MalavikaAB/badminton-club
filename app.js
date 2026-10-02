@@ -697,7 +697,7 @@ function renderCourts() {
   document.querySelector('#courts').innerHTML = rounds.map(({ court, format, color, players, teamA, teamB }) => `
     <article class="court" style="--court-color:${color}">
       <div class="court-number"><strong>COURT ${court}</strong><span>4 / 4</span></div>
-         <ul>${players.map(player => `<li class="court-player-target ${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''} ${selectedQueuePlayerId || selectedCourtPlayerId ? 'swap-ready' : ''} ${selectedCourtPlayerId === player.id ? 'is-selected' : ''}" data-swap-out="${player.id}" draggable="true" tabindex="0" aria-label="Court player ${escapeHtml(player.name)}; select to swap with another player"><span title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-menu="${player.id}" draggable="false" aria-label="More swap options for ${escapeHtml(player.name)}">Swap</button></li>`).join('')}</ul>
+         <ul>${players.map(player => `<li class="court-player-target ${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''} ${selectedQueuePlayerId || selectedCourtPlayerId ? 'swap-ready' : ''} ${selectedCourtPlayerId === player.id ? 'is-selected' : ''}" data-swap-out="${player.id}" draggable="true" tabindex="0" aria-label="Court player ${escapeHtml(player.name)}; select to swap with another court or waiting player"><span title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-menu="${player.id}" draggable="false" aria-label="More swap options for ${escapeHtml(player.name)}">Swap</button></li>`).join('')}</ul>
       <p class="format">${format}</p>
     </article>`).join('');
   document.querySelector('#playing-count').textContent = String(rounds.length * 4);
@@ -769,7 +769,7 @@ function renderWaiting() {
   } else {
     list.innerHTML = waiting.map(player => `<li>
       <div class="queue-body">
-        <div class="queue-identity ${selectedQueuePlayerId === player.id ? 'queue-player-selected' : ''}" ${player.sittingOut ? '' : `draggable="true" data-queue-player="${player.id}" role="button" tabindex="0" aria-pressed="${selectedQueuePlayerId === player.id}" aria-label="Select ${escapeHtml(player.name)} to swap onto a court"`}><span class="queue-name" title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)}</small></div>
+        <div class="queue-identity ${selectedQueuePlayerId === player.id ? 'queue-player-selected' : ''}" ${player.sittingOut ? '' : `draggable="true" data-queue-player="${player.id}" role="button" tabindex="0" aria-pressed="${selectedQueuePlayerId === player.id}" aria-label="Select ${escapeHtml(player.name)} to swap with a court player"`}><span class="queue-name" title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)}</small></div>
         <div class="queue-meta"><span class="games-played">${player.sittingOut ? 'On break' : `${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}`}</span><span class="wait-time">${player.roundsWaiting} ${player.roundsWaiting === 1 ? 'round wait' : 'rounds wait'}</span><button type="button" class="inline-action light" data-wait-sit-out="${player.id}" data-sitting-out="${player.sittingOut}">${player.sittingOut ? 'Cancel' : 'Break'}</button></div>
       </div>
     </li>`).join('');
@@ -779,16 +779,33 @@ function renderWaiting() {
       : selectedCourtPlayerId ? 'Tap another court player' : 'Waiting';
     document.querySelector('#queue-count').textContent = String(waiting.length);
     list.querySelectorAll('[data-queue-player]').forEach(player => {
-      player.addEventListener('click', () => selectQueuePlayer(player.dataset.queuePlayer));
+      player.addEventListener('click', () => {
+        if (selectedCourtPlayerId) swapQueuePlayer(selectedCourtPlayerId, player.dataset.queuePlayer);
+        else selectQueuePlayer(player.dataset.queuePlayer);
+      });
       player.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          selectQueuePlayer(player.dataset.queuePlayer);
+          if (selectedCourtPlayerId) swapQueuePlayer(selectedCourtPlayerId, player.dataset.queuePlayer);
+          else selectQueuePlayer(player.dataset.queuePlayer);
         }
       });
       player.addEventListener('dragstart', event => {
         event.dataTransfer.setData('text/plain', player.dataset.queuePlayer);
         event.dataTransfer.effectAllowed = 'move';
+      });
+      player.addEventListener('dragover', event => {
+        if (!event.dataTransfer.types.includes('text/plain')) return;
+        event.preventDefault();
+        player.classList.add('drop-ready');
+      });
+      player.addEventListener('dragleave', () => player.classList.remove('drop-ready'));
+      player.addEventListener('drop', event => {
+        const outgoingPlayerId = event.dataTransfer.getData('text/plain');
+        if (!rounds.some(court => court.players.some(assigned => assigned.id === outgoingPlayerId))) return;
+        event.preventDefault();
+        player.classList.remove('drop-ready');
+        swapQueuePlayer(outgoingPlayerId, player.dataset.queuePlayer);
       });
     });
   }
@@ -814,7 +831,7 @@ function selectCourtPlayer(playerId) {
 function updateSwapSelection() {
   document.querySelector('#queue-heading').textContent = selectedQueuePlayerId
     ? 'Tap a court player'
-    : selectedCourtPlayerId ? 'Tap another court player' : 'Waiting';
+    : selectedCourtPlayerId ? 'Tap another court or waiting player' : 'Waiting';
   document.querySelectorAll('[data-queue-player]').forEach(player => {
     const selected = player.dataset.queuePlayer === selectedQueuePlayerId;
     player.classList.toggle('queue-player-selected', selected);
