@@ -2,12 +2,18 @@ import { db } from './db.js';
 import { EPOCH, type Gender, type Player, type RoundAllocation } from './types.js';
 import { openNightId } from './repo.js';
 
-export async function latestRound(sessionId: string): Promise<RoundAllocation> {
+export async function latestRound(
+  sessionId: string,
+  knownNightId?: string | null,
+  knownRound?: { id: string; roundNumber: number },
+): Promise<RoundAllocation> {
   const sql = db();
-  const nightId = await openNightId(sessionId);
-  const latest = nightId
-    ? await sql`select id, round_number from venue_rounds where night_id = ${nightId} order by round_number desc limit 1`
-    : [];
+  const nightId = knownNightId === undefined ? await openNightId(sessionId) : knownNightId;
+  const latest = !nightId
+    ? []
+    : knownRound
+      ? [{ id: knownRound.id, round_number: knownRound.roundNumber }]
+      : await sql`select id, round_number from venue_rounds where night_id = ${nightId} order by round_number desc limit 1`;
   if ((latest as any[]).length === 0) {
     return { roundNumber: 0, courts: [], waiting: [] };
   }

@@ -8,30 +8,35 @@ export interface SessionRow { id: string; day: string; location: string; divisio
 export async function sessions(includeInactive = false): Promise<SessionRow[]> {
   await ensureSchema();
   const sql = db();
-  const rows = includeInactive
-    ? await sql`
-      select id, weekday, location, courts, active from venue_sessions
-      order by case weekday when 'MONDAY' then 1 when 'TUESDAY' then 2
-      when 'WEDNESDAY' then 3 when 'THURSDAY' then 4 when 'SUNDAY' then 5 else 6 end, location`
-    : await sql`
-      select id, weekday, location, courts, active from venue_sessions where active = true
-      order by case weekday when 'MONDAY' then 1 when 'TUESDAY' then 2
-      when 'WEDNESDAY' then 3 when 'THURSDAY' then 4 when 'SUNDAY' then 5 else 6 end, location`;
-  const out: SessionRow[] = [];
-  for (const r of rows as any[]) {
-    const divs = await sql`select division from venue_session_divisions where session_id = ${r.id} order by division`;
-    out.push({ id: r.id, day: r.weekday, location: r.location, divisions: (divs as any[]).map((d) => d.division), courts: Number(r.courts ?? 6) || 6, active: r.active !== false });
-  }
-  return out;
+  const rows = await sql`
+    select s.id, s.weekday, s.location, s.courts, s.active,
+      coalesce(
+        array_agg(d.division order by d.division) filter (where d.division is not null),
+        array[]::text[]
+      ) as divisions
+    from venue_sessions s
+    left join venue_session_divisions d on d.session_id = s.id
+    where (${includeInactive}::boolean or s.active = true)
+    group by s.id, s.weekday, s.location, s.courts, s.active
+    order by case s.weekday when 'MONDAY' then 1 when 'TUESDAY' then 2
+      when 'WEDNESDAY' then 3 when 'THURSDAY' then 4 when 'SUNDAY' then 5 else 6 end,
+      s.location`;
+  return (rows as any[]).map((row) => ({
+    id: row.id,
+    day: row.weekday,
+    location: row.location,
+    divisions: (row.divisions as string[]).map(String),
+    courts: Number(row.courts ?? 6) || 6,
+    active: row.active !== false,
+  }));
 }
 
 const VALID_WEEKDAYS = new Set(['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'SUNDAY']);
 
-async function insertDivisions(sessionId: string, divisionsList: string[]): Promise<void> {
-  const sql = db();
-  for (const division of divisionsList) {
-    await sql`insert into venue_session_divisions (session_id, division) values (${sessionId}, ${division}) on conflict do nothing`;
-  }
+async function insertDivisions(sessionId: string, divisionsList: string[], client: any = db()): Promise<void> {
+  if (divisionsList.length === 0) return;
+  const rows = divisionsList.map((division) => ({ session_id: sessionId, division }));
+  await client`insert into venue_session_divisions ${client(rows, 'session_id', 'division')} on conflict do nothing`;
 }
 
 function slug(text: string): string {
@@ -62,39 +67,44 @@ export async function createSession(input: { weekday: string; location: string; 
     if (String(e?.message || '').includes('unique') || String(e?.code) === '23505') throw Object.assign(new Error('A session already exists for that weekday and venue'), { status: 409 });
     throw e;
   }
-  if (divisions.length) await insertDivisions(id, divisions);
-  const rows = await sessions(true);
-  const created = rows.find((r) => r.id === id);
-  if (!created) throw new Error('Could not load created session');
-  return created;
+  await insertDivisions(id, divisions);
+  return { id, day: weekday, location, divisions: [...divisions].sort(), courts, active: true };
 }
 
 export async function updateSession(id: string, input: { weekday?: string; location?: string; courts?: number; divisions?: string[]; active?: boolean }): Promise<SessionRow> {
   await ensureSchema();
   const sql = db();
-  const rows = await sql`select id from venue_sessions where id = ${id}`;
-  if (!(rows as any[]).length) throw Object.assign(new Error('Session not found'), { status: 404 });
+  let weekday: string | null = null;
+  let location: string | null = null;
+  let courts: number | null = null;
+  let active: boolean | null = null;
   if (input.weekday !== undefined) {
-    const weekday = String(input.weekday).toUpperCase();
+    weekday = String(input.weekday).toUpperCase();
     if (!VALID_WEEKDAYS.has(weekday)) throw Object.assign(new Error('Weekday must be one of Monday, Tuesday, Wednesday, Thursday, Sunday'), { status: 400 });
-    await sql`update venue_sessions set weekday = ${weekday} where id = ${id}`;
   }
   if (input.location !== undefined) {
-    const location = String(input.location).trim();
+    location = String(input.location).trim();
     if (!location) throw Object.assign(new Error('Venue name is required'), { status: 400 });
-    await sql`update venue_sessions set location = ${location} where id = ${id}`;
   }
   if (input.courts !== undefined) {
-    const courts = Math.min(20, Math.max(1, Number(input.courts) || 6));
-    await sql`update venue_sessions set courts = ${courts} where id = ${id}`;
+    courts = Math.min(20, Math.max(1, Number(input.courts) || 6));
   }
   if (input.active !== undefined) {
-    await sql`update venue_sessions set active = ${input.active === true} where id = ${id}`;
+    active = input.active === true;
   }
+  const updatedRows = await sql`update venue_sessions set
+      weekday = case when ${input.weekday !== undefined} then ${weekday} else weekday end,
+      location = case when ${input.location !== undefined} then ${location} else location end,
+      courts = case when ${input.courts !== undefined} then ${courts} else courts end,
+      active = case when ${input.active !== undefined} then ${active} else active end
+    where id = ${id} returning id`;
+  if (!(updatedRows as any[]).length) throw Object.assign(new Error('Session not found'), { status: 404 });
   if (input.divisions !== undefined) {
     const divisions = normaliseDivisions(input.divisions);
-    await sql`delete from venue_session_divisions where session_id = ${id}`;
-    if (divisions.length) await insertDivisions(id, divisions);
+    await sql.begin(async (tx: any) => {
+      await tx`delete from venue_session_divisions where session_id = ${id}`;
+      await insertDivisions(id, divisions, tx);
+    });
   }
   const all = await sessions(true);
   const updated = all.find((r) => r.id === id);
@@ -130,10 +140,15 @@ export async function ensureOpenNight(sessionId: string): Promise<string> {
 
 export async function resetStaleNight(sessionId: string): Promise<void> {
   const sql = db();
-  const stale = await sql`select exists (select 1 from venue_nights
-    where session_id = ${sessionId} and status = 'OPEN'
-    and (started_at at time zone 'Europe/Dublin')::date < (now() at time zone 'Europe/Dublin')::date) as stale`;
-  await sql`delete from venue_rounds where session_id = ${sessionId} and night_id is null`;
+  const stale = await sql`with stale as (
+      select exists (select 1 from venue_nights
+        where session_id = ${sessionId} and status = 'OPEN'
+        and (started_at at time zone 'Europe/Dublin')::date < (now() at time zone 'Europe/Dublin')::date) as value
+    ), orphan_rounds as (
+      delete from venue_rounds where session_id = ${sessionId} and night_id is null
+      returning id
+    )
+    select value as stale from stale`;
   if ((stale as any[])[0]?.stale === true) await endNight(sessionId);
 }
 
@@ -145,8 +160,6 @@ export async function endNight(sessionId: string): Promise<void> {
       union select rp.player_id from venue_round_players rp
       join venue_rounds r on r.id = rp.round_id where r.session_id = ${sessionId}
     )`;
-  await sql`delete from venue_round_players
-    where round_id in (select id from venue_rounds where session_id = ${sessionId})`;
   await sql`delete from venue_rounds where session_id = ${sessionId}`;
   await sql`delete from venue_nights where session_id = ${sessionId}`;
   await sql`delete from venue_check_ins where session_id = ${sessionId}`;

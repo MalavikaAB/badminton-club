@@ -6,7 +6,7 @@ import { ensureSchema } from './schema.js';
 import { generateRound } from './scheduler.js';
 import { EPOCH, type CourtAssignment, type GameFormat, type Gender, type Player, type RoundAllocation } from './types.js';
 import { splitLegalForFormat } from './pairing2.js';
-import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions, sessionCourts, createSession, updateSession, setSessionActive } from './repo.js';
+import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions, createSession, updateSession, setSessionActive } from './repo.js';
 import {
   loadCheckedInPlayers,
   serializeAllocation,
@@ -36,8 +36,6 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
   const root = segs[0] === 'club-night' ? segs.slice(1) : segs;
 
   try {
-    await ensureSchema();
-
     if (method === 'GET' && root.length === 1 && root[0] === 'health') {
       sendJson(res, 200, { status: 'ready', service: 'club-night-backend' });
       return;
@@ -49,6 +47,8 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
       sendJson(res, 200, { status: ok ? 'connected' : 'unexpected-response' });
       return;
     }
+
+    await ensureSchema();
 
     if (root[0] === 'players' && root.length === 1) {
       await handlePlayers(req, res, method);
@@ -179,8 +179,6 @@ async function handlePlayers(req: VercelRequest, res: VercelResponse, method: st
 
 async function handlePlayerUpdate(req: VercelRequest, res: VercelResponse, playerId: string): Promise<void> {
   const sql = db();
-  const rows = await sql`select id from players where id = ${playerId} and active = true`;
-  if (!(rows as any[]).length) { sendError(res, 404, 'Player not found'); return; }
   const body = await readJson(req);
   const name = body?.name !== undefined ? String(body.name).trim() : undefined;
   const gender = body?.gender;
@@ -188,11 +186,14 @@ async function handlePlayerUpdate(req: VercelRequest, res: VercelResponse, playe
   if (name !== undefined && name.length === 0) { sendError(res, 400, 'Name is required'); return; }
   if (gender !== undefined && gender !== 'MALE' && gender !== 'FEMALE') { sendError(res, 400, 'Gender must be MALE or FEMALE'); return; }
   if (division !== undefined && division.length === 0) { sendError(res, 400, 'Division is required'); return; }
-  if (name !== undefined) await sql`update players set name = ${name} where id = ${playerId}`;
-  if (gender !== undefined) await sql`update players set gender = ${gender} where id = ${playerId}`;
-  if (division !== undefined) await sql`update players set division = ${division} where id = ${playerId}`;
-  const after = await sql`select id, name, gender, division, games_played from players where id = ${playerId}`;
-  const r = (after as any[])[0];
+  const updated = await sql`update players set
+      name = case when ${name !== undefined} then ${name ?? null} else name end,
+      gender = case when ${gender !== undefined} then ${gender ?? null} else gender end,
+      division = case when ${division !== undefined} then ${division ?? null} else division end
+    where id = ${playerId} and active = true
+    returning id, name, gender, division, games_played`;
+  if (!(updated as any[]).length) { sendError(res, 404, 'Player not found'); return; }
+  const r = (updated as any[])[0];
   sendJson(res, 200, {
     id: String(r.id), name: r.name, gender: r.gender, division: r.division, gamesPlayed: Number(r.games_played),
   });
@@ -226,7 +227,6 @@ async function handleCheckIns(
 
   if (rest.length === 1 && rest[0] === 'clear' && method === 'DELETE') {
     await endNight(sessionId);
-    await sql`delete from venue_check_ins where session_id = ${sessionId}`;
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -256,9 +256,12 @@ async function handleCheckIns(
       // Ticking a checkbox must stay fast, so this is 3 round-trips max.
       // (Stale-night reset is handled by the GET check-ins and round
       // generation paths, which also consult the clock.)
-      await sql`insert into venue_check_ins (session_id, player_id, sit_out_rounds)
-        values (${sessionId}, ${playerId}, 0)
-        on conflict (session_id, player_id) do update set checked_in_at = now()`;
+      await Promise.all([
+        sql`insert into venue_check_ins (session_id, player_id, sit_out_rounds)
+          values (${sessionId}, ${playerId}, 0)
+          on conflict (session_id, player_id) do update set checked_in_at = now()`,
+        ensureOpenNight(sessionId),
+      ]);
       await sql`with m as (
           select coalesce(min(g.games_played), 0) as m
           from players g join venue_check_ins ci on ci.player_id = g.id
@@ -267,7 +270,6 @@ async function handleCheckIns(
         update players set rounds_waiting = 0,
           games_played = (select case when players.games_played < m.m then m.m else players.games_played end from m)
         where id = ${playerId}`;
-      await ensureOpenNight(sessionId);
       sendJson(res, 200, { ok: true });
       return;
     }
@@ -283,9 +285,11 @@ async function handleCheckIns(
 
 async function handleLatestRound(res: VercelResponse, sessionId: string): Promise<void> {
   await resetStaleNight(sessionId);
-  const alloc = await latestRound(sessionId);
   const nightId = await openNightId(sessionId);
-  const checked = await loadCheckedInPlayers(sessionId, nightId);
+  const [alloc, checked] = await Promise.all([
+    latestRound(sessionId, nightId),
+    loadCheckedInPlayers(sessionId, nightId),
+  ]);
   if (alloc.roundNumber === 0) {
     sendJson(res, 200, serializeAllocation({ roundNumber: 0, courts: [], waiting: checked }));
     return;
@@ -338,41 +342,50 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
   const inId = String(body?.inPlayerId ?? '');
   if (!outId || !inId) { sendError(res, 400, 'outPlayerId and inPlayerId are required'); return; }
   await resetStaleNight(sessionId);
-  const latest = await sql`select r.id, r.round_number from venue_rounds r
-    join venue_nights n on n.id = r.night_id
-    where n.session_id = ${sessionId} and n.status = 'OPEN'
-    order by r.round_number desc limit 1`;
-  if ((latest as any[]).length === 0) { sendJson(res, 400, { message: 'No round to swap' }); return; }
-  const roundId = String((latest as any[])[0].id);
-  const outgoing = await sql`select rp.court_number, rp.format, rp.team, p.gender, p.division
-    from venue_round_players rp join players p on p.id = rp.player_id
-    where rp.round_id = ${roundId} and rp.player_id = ${outId}`;
-  if ((outgoing as any[]).length === 0) { sendJson(res, 400, { message: 'That player is not on a court' }); return; }
-  const out = (outgoing as any[])[0];
-  const incomingProfile = await sql`select gender, division from players where id = ${inId}`;
-  if ((incomingProfile as any[]).length === 0) { sendJson(res, 400, { message: 'Replacement player not found' }); return; }
-  const incomingPlayer = (incomingProfile as any[])[0];
-  const incomingGender = incomingPlayer.gender as Gender;
-  const incomingDivision = String(incomingPlayer.division);
+  const context = await sql`with latest as (
+      select r.id, r.round_number, n.id as night_id
+      from venue_rounds r join venue_nights n on n.id = r.night_id
+      where n.session_id = ${sessionId} and n.status = 'OPEN'
+      order by r.round_number desc limit 1
+    )
+    select latest.id as round_id, latest.round_number, latest.night_id,
+      rp.player_id, rp.court_number, rp.format, rp.team, p.gender, p.division,
+      incoming.id as incoming_profile_id,
+      incoming.gender as incoming_gender,
+      incoming.division as incoming_division,
+      ci.player_id as incoming_checkin_id,
+      ci.sit_out_rounds as incoming_sit_out_rounds
+    from latest
+    left join venue_round_players rp on rp.round_id = latest.id
+    left join players p on p.id = rp.player_id
+    left join players incoming on incoming.id = ${inId}
+    left join venue_check_ins ci on ci.session_id = ${sessionId} and ci.player_id = incoming.id
+    order by rp.court_number, rp.team`;
+  const rows = context as any[];
+  if (rows.length === 0) { sendJson(res, 400, { message: 'No round to swap' }); return; }
+  const contextRow = rows[0];
+  const roundId = String(contextRow.round_id);
+  const roundNumber = Number(contextRow.round_number);
+  const nightId = String(contextRow.night_id);
+  const outgoing = rows.find((row) => String(row.player_id) === outId);
+  if (!outgoing) { sendJson(res, 400, { message: 'That player is not on a court' }); return; }
+  if (!contextRow.incoming_profile_id) { sendJson(res, 400, { message: 'Replacement player not found' }); return; }
+  const incomingGender = contextRow.incoming_gender as Gender;
+  const incomingDivision = String(contextRow.incoming_division);
   const separateDivisions = body?.separateDivisions !== false;
-  const assignedIncoming = await sql`select court_number, format, team
-    from venue_round_players where round_id = ${roundId} and player_id = ${inId}`;
-  if ((assignedIncoming as any[]).length > 0
-    && Number((assignedIncoming as any[])[0].court_number) === Number(out.court_number)) {
+  const assignedIncoming = rows.find((row) => String(row.player_id) === inId);
+  if (assignedIncoming && Number(assignedIncoming.court_number) === Number(outgoing.court_number)) {
     sendJson(res, 400, { message: 'Choose a player from another court or the waiting list' });
     return;
   }
-  const outgoingCourtRows = await sql`select rp.player_id, rp.team, p.gender, p.division
-    from venue_round_players rp join players p on p.id = rp.player_id
-    where rp.round_id = ${roundId} and rp.court_number = ${out.court_number}`;
-  const outgoingLineup = mapSwapLineup(outgoingCourtRows as any[]);
+  const outgoingLineup = mapSwapLineup(rows.filter((row) => Number(row.court_number) === Number(outgoing.court_number)));
   const projectedOutgoing = replaceSwapLineupPlayer(outgoingLineup, outId, {
     playerId: inId,
     gender: incomingGender,
     division: incomingDivision,
   });
-  if (!isValidSwapLineup(out.format as GameFormat, projectedOutgoing)) {
-    sendJson(res, 400, { message: `That replacement would make this ${String(out.format).toLowerCase().replaceAll('_', ' ')} lineup invalid` });
+  if (!isValidSwapLineup(outgoing.format as GameFormat, projectedOutgoing)) {
+    sendJson(res, 400, { message: `That replacement would make this ${String(outgoing.format).toLowerCase().replaceAll('_', ' ')} lineup invalid` });
     return;
   }
   if (separateDivisions && !hasSingleDivision(projectedOutgoing)) {
@@ -380,18 +393,14 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
     return;
   }
 
-  if ((assignedIncoming as any[]).length > 0) {
-    const incoming = (assignedIncoming as any[])[0];
-    const incomingCourtRows = await sql`select rp.player_id, rp.team, p.gender, p.division
-      from venue_round_players rp join players p on p.id = rp.player_id
-      where rp.round_id = ${roundId} and rp.court_number = ${incoming.court_number}`;
-    const incomingLineup = mapSwapLineup(incomingCourtRows as any[]);
+  if (assignedIncoming) {
+    const incomingLineup = mapSwapLineup(rows.filter((row) => Number(row.court_number) === Number(assignedIncoming.court_number)));
     const projectedIncoming = replaceSwapLineupPlayer(incomingLineup, inId, {
       playerId: outId,
-      gender: out.gender as Gender,
-      division: String(out.division),
+      gender: outgoing.gender as Gender,
+      division: String(outgoing.division),
     });
-    if (!isValidSwapLineup(incoming.format as GameFormat, projectedIncoming)) {
+    if (!isValidSwapLineup(assignedIncoming.format as GameFormat, projectedIncoming)) {
       sendJson(res, 400, { message: 'That swap would make the other court lineup invalid' });
       return;
     }
@@ -404,30 +413,31 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
       await tx`delete from venue_round_players
         where round_id = ${roundId} and player_id in (${outId}, ${inId})`;
       await tx`insert into venue_round_players (round_id, court_number, format, team, player_id)
-        values (${roundId}, ${out.court_number}, ${out.format}, ${out.team}, ${inId}),
-          (${roundId}, ${incoming.court_number}, ${incoming.format}, ${incoming.team}, ${outId})`;
+        values (${roundId}, ${outgoing.court_number}, ${outgoing.format}, ${outgoing.team}, ${inId}),
+          (${roundId}, ${assignedIncoming.court_number}, ${assignedIncoming.format}, ${assignedIncoming.team}, ${outId})`;
     });
   } else {
-    const waiting = await sql`select exists (select 1 from venue_check_ins ci
-      where ci.session_id = ${sessionId} and ci.player_id = ${inId} and ci.sit_out_rounds = 0
-      and not exists (select 1 from venue_round_players rp where rp.round_id = ${roundId} and rp.player_id = ci.player_id)) as ok`;
-    if ((waiting as any[])[0]?.ok !== true) {
+    if (!contextRow.incoming_checkin_id || Number(contextRow.incoming_sit_out_rounds ?? 0) > 0) {
       sendJson(res, 400, { message: 'Replacement must be waiting and not sitting out' });
       return;
     }
-    await sql`delete from venue_round_players where round_id = ${roundId} and player_id = ${outId}`;
-    await sql`insert into venue_round_players (round_id, court_number, format, team, player_id)
-      values (${roundId}, ${out.court_number}, ${out.format}, ${out.team}, ${inId})`;
-    await sql`update players set rounds_waiting = rounds_waiting + 1 where id = ${outId}`;
-    await sql`update players set rounds_waiting = 0 where id = ${inId}`;
+    await sql.begin(async (tx: any) => {
+      await tx`delete from venue_round_players where round_id = ${roundId} and player_id = ${outId}`;
+      await tx`insert into venue_round_players (round_id, court_number, format, team, player_id)
+        values (${roundId}, ${outgoing.court_number}, ${outgoing.format}, ${outgoing.team}, ${inId})`;
+      await tx`update players set
+        rounds_waiting = case when id = ${outId} then rounds_waiting + 1 else 0 end,
+        games_played = (select count(*) from venue_round_players rp
+          join venue_rounds r on r.id = rp.round_id
+          where rp.player_id = players.id and r.night_id = ${nightId})
+        where id in (${outId}, ${inId})`;
+    });
   }
-  const nightId = await openNightId(sessionId);
-if (nightId) {
-    await syncNightGameCounts(sessionId, nightId);
-    await syncPairCounts(nightId);
-  }
-  const fresh = await latestRound(sessionId);
-  const checked = await loadCheckedInPlayers(sessionId, await openNightId(sessionId));
+  await syncPairCounts(nightId);
+  const [fresh, checked] = await Promise.all([
+    latestRound(sessionId, nightId, { id: roundId, roundNumber }),
+    loadCheckedInPlayers(sessionId, nightId),
+  ]);
   const assigned = new Set(fresh.courts.flatMap((c) => c.players.map((p) => p.id)));
   sendJson(res, 200, serializeAllocation({ ...fresh, waiting: checked.filter((p) => !assigned.has(p.id)) }));
 }
@@ -447,12 +457,8 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   if (sessionId) await resetStaleNight(sessionId);
   const nightId = sessionId ? await ensureOpenNight(sessionId) : null;
   let next = roundNumber;
-  if (sessionId && nightId) {
-    const r = await sql`select coalesce(max(round_number), 0) + 1 as n
-      from venue_rounds where night_id = ${nightId}`;
-    next = Number((r as any[])[0]?.n ?? 1);
-  }
   let players: Player[] = [];
+  let maxCourts: number | undefined;
   if (!sessionId) {
     players = (Array.isArray(body?.players) ? body.players : []).map((p: any) => ({
       id: String(p.id ?? randomUUID()), name: String(p.name ?? ''),
@@ -462,10 +468,17 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
       sittingOut: p.sittingOut === true, pairCount: {}, oppCount: {},
       lastPartner: null, lastOpponents: [],
     }));
-  } else {
-    players = await loadCheckedInPlayers(sessionId, nightId);
+  } else if (nightId) {
+    const [roundState, checkedPlayers] = await Promise.all([
+      sql`select coalesce((select max(round_number) + 1 from venue_rounds where night_id = ${nightId}), 1) as next_round,
+        (select courts from venue_sessions where id = ${sessionId}) as courts`,
+      loadCheckedInPlayers(sessionId, nightId),
+    ]);
+    const state = (roundState as any[])[0];
+    next = Number(state?.next_round ?? 1);
+    maxCourts = Number(state?.courts ?? 6) || 6;
+    players = checkedPlayers;
   }
-  const maxCourts = sessionId ? await sessionCourts(sessionId) : undefined;
   let allocation: RoundAllocation;
   if (Object.prototype.hasOwnProperty.call(body ?? {}, 'manualCourts')) {
     if (!sessionId || !nightId || !Array.isArray(body.manualCourts)) {
@@ -502,21 +515,46 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
     await sql`insert into venue_round_players ${sql(rows, 'round_id', 'court_number', 'format', 'team', 'player_id')}`;
   }
   const assignedIds = allocation.courts.flatMap((c) => c.players.map((p) => p.id));
-  if (assignedIds.length > 0) {
-    await sql`update players set rounds_waiting = 0 where id = any(${assignedIds}::uuid[])`;
-  }
   const waitingIds = allocation.waiting.map((p) => p.id);
-  if (waitingIds.length > 0) {
-    await sql`update players set rounds_waiting = rounds_waiting + 1 where id = any(${waitingIds}::uuid[])`;
+  const selectedIds = [...assignedIds, ...waitingIds];
+  if (selectedIds.length > 0) {
+    await sql`update players set rounds_waiting = case
+        when id = any(${assignedIds}::uuid[]) then 0
+        else rounds_waiting + 1
+      end
+      where id = any(${selectedIds}::uuid[])`;
   }
-  await sql`update venue_check_ins set sit_out_rounds = greatest(sit_out_rounds - 1, 0)
-    where session_id = ${sessionId} and sit_out_rounds > 0`;
-  await syncNightGameCounts(sessionId, nightId);
-  await syncPairCounts(nightId);
-  const fresh = await latestRound(sessionId);
-  const checked = await loadCheckedInPlayers(sessionId, await openNightId(sessionId));
-  const assigned = new Set(fresh.courts.flatMap((c) => c.players.map((p) => p.id)));
-  sendJson(res, 200, serializeAllocation({ ...fresh, waiting: checked.filter((p) => !assigned.has(p.id)) }));
+  await Promise.all([
+    sql`update venue_check_ins set sit_out_rounds = greatest(sit_out_rounds - 1, 0)
+      where session_id = ${sessionId} and sit_out_rounds > 0`,
+    syncNightGameCounts(sessionId, nightId),
+    syncPairCounts(nightId),
+  ]);
+  refreshGeneratedAllocation(allocation);
+  sendJson(res, 200, serializeAllocation(allocation));
+}
+
+function refreshGeneratedAllocation(allocation: RoundAllocation): void {
+  for (const court of allocation.courts) {
+    const byName = (left: Player, right: Player) => left.name.localeCompare(right.name);
+    court.players.sort(byName);
+    court.teamA.sort(byName);
+    court.teamB.sort(byName);
+    for (const player of court.players) {
+      const team = court.teamA.some((member) => member.id === player.id) ? court.teamA : court.teamB;
+      const opponents = team === court.teamA ? court.teamB : court.teamA;
+      player.gamesPlayed += 1;
+      player.roundsWaiting = 0;
+      player.sittingOut = false;
+      player.lastPartner = team.find((member) => member.id !== player.id)?.id ?? null;
+      player.lastOpponents = opponents.map((opponent) => opponent.id);
+    }
+  }
+  for (const player of allocation.waiting) {
+    player.roundsWaiting += 1;
+    player.sittingOut = false;
+  }
+  allocation.waiting.sort((left, right) => left.checkedInAt.localeCompare(right.checkedInAt));
 }
 
 function createManualAllocation(

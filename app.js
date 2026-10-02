@@ -513,15 +513,10 @@ function readVenueCard(sessionId) {
 }
 
 async function refreshSessions() {
-  const [activeResponse, allResponse] = await Promise.all([
-    fetch(`${apiBaseUrl}/sessions`),
-    fetch(`${apiBaseUrl}/sessions?all=1`)
-  ]);
-  if (!activeResponse.ok) throw new Error(`Could not load sessions: ${activeResponse.status}`);
-  if (!allResponse.ok) throw new Error(`Could not load sessions: ${allResponse.status}`);
-  clubSessions = (await activeResponse.json()).map(normaliseSession);
-  const all = await allResponse.json();
-  allSessions = all.map(normaliseSession);
+  const response = await fetch(`${apiBaseUrl}/sessions?all=1`);
+  if (!response.ok) throw new Error(`Could not load sessions: ${response.status}`);
+  allSessions = (await response.json()).map(normaliseSession);
+  clubSessions = allSessions.filter(session => session.active);
   fillDivisionSelects();
   renderScheduleNote();
   renderVenues();
