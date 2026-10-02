@@ -7,6 +7,25 @@
 .court li.team-b { border-left:3px solid var(--coral); padding-left:8px; }
 .court li > span:first-child { min-width:0; flex:1 1 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .court li small, .court li .inline-action { flex:0 0 auto; }
+.manual-mode-button { width:100%; margin-top:12px; }
+.manual-court { min-height:280px; }
+.manual-court .court-number { align-items:center; gap:10px; }
+.manual-court select { max-width:58%; border:1px solid var(--line); border-radius:5px; background:var(--panel); color:var(--ink); padding:7px 8px; font:500 12px 'DM Mono',monospace; }
+.manual-teams { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:18px; }
+.manual-team { display:grid; gap:7px; min-width:0; }
+.manual-team > small { color:var(--muted); font:500 10px 'DM Mono',monospace; }
+.manual-slot { display:flex; align-items:center; justify-content:space-between; gap:5px; width:100%; min-width:0; min-height:42px; border:1px dashed var(--line); border-radius:4px; background:#f8f7f0; color:var(--ink); padding:7px; text-align:left; cursor:pointer; font:500 12px 'Space Grotesk',sans-serif; }
+.manual-slot.team-a { border-left:3px solid var(--green); }
+.manual-slot.team-b { border-left:3px solid var(--coral); }
+.manual-slot.filled { border-style:solid; }
+.manual-slot span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.manual-slot small { flex:0 0 auto; color:var(--muted); font:10px 'DM Mono',monospace; }
+.manual-slot.drop-ready { outline:2px solid var(--lime); outline-offset:1px; background:#eef5d8; }
+.manual-slot.is-selected, .manual-player.is-selected { outline:2px solid var(--lime); outline-offset:2px; }
+.manual-player { display:flex; justify-content:space-between; align-items:center; gap:8px; width:100%; border:0; background:transparent; color:inherit; padding:0; text-align:left; cursor:grab; font:500 14px 'Space Grotesk',sans-serif; }
+.manual-player:active { cursor:grabbing; }
+.manual-player span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.manual-player small { flex:0 0 auto; color:#9caaa2; font:10px 'DM Mono',monospace; white-space:nowrap; }
 
 :root { --ink:#18221e; --muted:#6e7b74; --paper:#f3f1e9; --panel:#fffdf7; --line:#d9ded4; --green:#1b6b4b; --lime:#cce86d; --coral:#e76f51; }
 * { box-sizing:border-box; }

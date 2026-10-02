@@ -84,7 +84,7 @@
     <section class="content-grid">
       <section>
         <div class="section-heading">
-          <div><p class="eyebrow">CURRENT ALLOCATION</p><h2>Head to your court</h2></div>
+          <div><p class="eyebrow" id="board-eyebrow">CURRENT ALLOCATION</p><h2 id="board-heading">Head to your court</h2></div>
           <div class="heading-actions">
             <button class="secondary-button" id="announce-button">Announce mode</button>
             <button class="secondary-button danger-button" id="end-night-button">End club night</button>
@@ -94,9 +94,10 @@
       </section>
 
       <aside class="waiting-panel">
-        <div class="section-heading"><div><p class="eyebrow">QUEUE</p><h2>Waiting</h2></div><span class="queue-count" id="queue-count">0</span></div>
+        <div class="section-heading"><div><p class="eyebrow" id="queue-eyebrow">QUEUE</p><h2 id="queue-heading">Waiting</h2></div><span class="queue-count" id="queue-count">0</span></div>
         <label class="toggle-row" for="separate-divisions"><input type="checkbox" id="separate-divisions" checked><span>Keep divs on separate courts</span></label>
         <button class="primary-button" id="next-round-button">Generate next round <span>→</span></button>
+        <button class="secondary-button manual-mode-button" id="manual-round-button" type="button">Build round manually</button>
         <ol id="waiting-list"></ol>
         <p class="fine-print">Assignments favour players fewest games tonight, then longest waiting. Put someone on a break for the next round, or swap a court player with someone waiting.</p>
         <p class="fine-print">With divisions mixed, courts are evened out where they can be — two players from one division and two from another rather than three and one.</p>
@@ -164,6 +165,6 @@
       <button class="secondary-button" id="swap-cancel">Cancel</button>
     </div>
   </div>
-  <script src="app.js?v=20260925-timer-divmix-editvenue"></script>
+  <script src="app.js?v=20261002-manual-round"></script>
 </body>
 </html>

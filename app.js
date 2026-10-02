@@ -65,6 +65,10 @@ let rounds = [];
 let waiting = [];
 let checkedInCount = 0;
 let swapOutPlayerId = null;
+let manualMode = false;
+let manualCandidates = [];
+let manualCourts = [];
+let selectedManualPlayerId = null;
 
 const formatLabels = {
   MENS_DOUBLES: "Men's doubles",
@@ -305,6 +309,13 @@ function mapPlayers(players) {
 }
 
 function applyAllocation(allocation) {
+  manualMode = false;
+  manualCandidates = [];
+  manualCourts = [];
+  selectedManualPlayerId = null;
+  document.querySelector('#separate-divisions').disabled = false;
+  document.querySelector('#board-eyebrow').textContent = 'CURRENT ALLOCATION';
+  document.querySelector('#board-heading').textContent = 'Head to your court';
   const roundNumber = allocation?.roundNumber || 0;
   rounds = (allocation?.courts || []).map(({ courtNumber, format, players, teamA, teamB }) => ({
     court: courtNumber,
@@ -319,6 +330,7 @@ function applyAllocation(allocation) {
   document.querySelector('#round-number').textContent = String(roundNumber).padStart(2, '0');
   renderCourts();
   renderWaiting();
+  updateGenerateButton();
 }
 
 async function renderCheckins() {
@@ -382,9 +394,22 @@ async function setSitOut(playerId, alreadySittingOut) {
 
 function updateGenerateButton() {
   const button = document.querySelector('#next-round-button');
-  if (!button || button.dataset.busy === 'true') return;
+  const manualButton = document.querySelector('#manual-round-button');
+  if (!button || !manualButton) return;
+  if (manualMode) {
+    const issue = manualLineupIssue();
+    button.textContent = button.dataset.busy === 'true' ? 'Creating...' : 'Create manual round';
+    button.disabled = button.dataset.busy === 'true' || Boolean(issue);
+    button.title = issue;
+    manualButton.textContent = 'Cancel manual build';
+    return;
+  }
+  if (button.dataset.busy === 'true') return;
+  button.innerHTML = 'Generate next round <span>→</span>';
   button.disabled = checkedInCount < 4;
   button.title = checkedInCount < 4 ? 'Check in at least four players first' : '';
+  manualButton.textContent = 'Build round manually';
+  manualButton.disabled = checkedInCount < 4;
 }
 
 let editingPlayerId = null;
@@ -524,7 +549,152 @@ async function setVenueActive(sessionId, active) {
   await initializeLatestRound().catch(() => {});
 }
 
+const manualFormats = [
+  ['OPEN_DOUBLES', 'Open doubles'],
+  ['MENS_DOUBLES', "Men's doubles"],
+  ['WOMENS_DOUBLES', "Women's doubles"],
+  ['MIXED_DOUBLES', 'Mixed doubles']
+];
+
+function manualFormatIsValid(format, teamA, teamB) {
+  const players = [...teamA, ...teamB];
+  if (format === 'OPEN_DOUBLES') return true;
+  if (format === 'MENS_DOUBLES') return players.every(player => player.gender === 'MALE');
+  if (format === 'WOMENS_DOUBLES') return players.every(player => player.gender === 'FEMALE');
+  const isMixed = team => team.filter(player => player.gender === 'MALE').length === 1
+    && team.filter(player => player.gender === 'FEMALE').length === 1;
+  return players.filter(player => player.gender === 'MALE').length === 2
+    && players.filter(player => player.gender === 'FEMALE').length === 2
+    && isMixed(teamA) && isMixed(teamB);
+}
+
+function manualLineupIssue() {
+  if (!manualCourts.length) return 'At least four available players are needed';
+  for (const court of manualCourts) {
+    if (court.slots.some(playerId => !playerId)) return 'Fill all four places on every court';
+    const teamA = court.slots.slice(0, 2).map(id => manualCandidates.find(player => player.id === id));
+    const teamB = court.slots.slice(2).map(id => manualCandidates.find(player => player.id === id));
+    if (!manualFormatIsValid(court.format, teamA, teamB)) return `Players do not match Court ${court.court}'s format`;
+  }
+  return '';
+}
+
+function renderManualCourts() {
+  const courts = document.querySelector('#courts');
+  courts.innerHTML = manualCourts.map((court, courtIndex) => `
+    <article class="court manual-court" style="--court-color:${colourForFormat(court.format)}">
+      <div class="court-number"><strong>COURT ${court.court}</strong><select aria-label="Format for Court ${court.court}" data-manual-format="${courtIndex}">${manualFormats.map(([value, label]) => `<option value="${value}" ${court.format === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
+      <div class="manual-teams">
+        <div class="manual-team team-a-slots"><small>TEAM A</small>${court.slots.slice(0, 2).map((playerId, slotIndex) => manualSlotMarkup(playerId, courtIndex, slotIndex)).join('')}</div>
+        <div class="manual-team team-b-slots"><small>TEAM B</small>${court.slots.slice(2, 4).map((playerId, slotIndex) => manualSlotMarkup(playerId, courtIndex, slotIndex + 2)).join('')}</div>
+      </div>
+    </article>`).join('');
+  courts.querySelectorAll('[data-manual-format]').forEach(select => select.addEventListener('change', () => {
+    manualCourts[Number(select.dataset.manualFormat)].format = select.value;
+    renderManualBuilder();
+  }));
+  courts.querySelectorAll('[data-manual-slot]').forEach(slot => {
+    if (slot.dataset.manualPlayer) slot.addEventListener('dragstart', event => {
+      event.dataTransfer.setData('text/plain', slot.dataset.manualPlayer);
+      event.dataTransfer.effectAllowed = 'move';
+    });
+    slot.addEventListener('click', () => {
+      const [courtIndex, slotIndex] = slot.dataset.manualSlot.split(':').map(Number);
+      if (selectedManualPlayerId) assignManualPlayer(selectedManualPlayerId, courtIndex, slotIndex);
+      else if (manualCourts[courtIndex].slots[slotIndex]) {
+        manualCourts[courtIndex].slots[slotIndex] = null;
+        renderManualBuilder();
+      }
+    });
+    slot.addEventListener('dragover', event => { event.preventDefault(); slot.classList.add('drop-ready'); });
+    slot.addEventListener('dragleave', () => slot.classList.remove('drop-ready'));
+    slot.addEventListener('drop', event => {
+      event.preventDefault();
+      slot.classList.remove('drop-ready');
+      const [courtIndex, slotIndex] = slot.dataset.manualSlot.split(':').map(Number);
+      assignManualPlayer(event.dataTransfer.getData('text/plain'), courtIndex, slotIndex);
+    });
+  });
+  updateGenerateButton();
+}
+
+function manualSlotMarkup(playerId, courtIndex, slotIndex) {
+  const player = manualCandidates.find(item => item.id === playerId);
+  const teamClass = slotIndex < 2 ? 'team-a' : 'team-b';
+  return `<button type="button" class="manual-slot ${teamClass} ${player ? 'filled' : ''} ${selectedManualPlayerId === playerId ? 'is-selected' : ''}" data-manual-slot="${courtIndex}:${slotIndex}" ${player ? `draggable="true" data-manual-player="${player.id}" aria-label="${escapeHtml(player.name)}, ${teamClass.replace('team-', 'Team ')}; click to remove"` : `aria-label="Empty ${teamClass.replace('team-', 'Team ')} place on Court ${manualCourts[courtIndex].court}"`}>
+    ${player ? `<span>${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)}</small>` : '<span class="empty-slot-label">Empty place</span>'}
+  </button>`;
+}
+
+function renderManualBuilder() {
+  renderCourts();
+  renderWaiting();
+}
+
+function assignManualPlayer(playerId, courtIndex, slotIndex) {
+  if (!manualCandidates.some(player => player.id === playerId)) return;
+  manualCourts.forEach(court => {
+    court.slots = court.slots.map(id => id === playerId ? null : id);
+  });
+  manualCourts[courtIndex].slots[slotIndex] = playerId;
+  selectedManualPlayerId = null;
+  renderManualBuilder();
+}
+
+async function startManualRound() {
+  const manualButton = document.querySelector('#manual-round-button');
+  manualButton.disabled = true;
+  manualButton.textContent = 'Loading players...';
+  try {
+    await initializeLatestRound();
+  } catch (error) {
+    window.alert('Could not load the current player list. Check your connection and try again.');
+    console.error('Could not load players for a manual round:', error);
+    updateGenerateButton();
+    return;
+  }
+  const eligible = [...rounds.flatMap(court => court.players), ...waiting]
+    .filter(player => !player.sittingOut);
+  manualCandidates = [...new Map(eligible.map(player => [player.id, player])).values()]
+    .sort((a, b) => a.gamesPlayed - b.gamesPlayed || b.roundsWaiting - a.roundsWaiting || a.name.localeCompare(b.name));
+  if (manualCandidates.length < 4) {
+    window.alert('At least four checked-in players who are not on a break are needed.');
+    updateGenerateButton();
+    return;
+  }
+  const session = clubSessions.find(item => item.id === selectedSession());
+  const courtCount = Math.min(session?.courts ?? 0, Math.floor(manualCandidates.length / 4));
+  manualCourts = Array.from({ length: courtCount }, (_, index) => ({
+    court: index + 1,
+    format: 'OPEN_DOUBLES',
+    slots: [null, null, null, null]
+  }));
+  manualMode = true;
+  selectedManualPlayerId = null;
+  document.querySelector('#separate-divisions').disabled = true;
+  document.querySelector('#board-eyebrow').textContent = 'MANUAL ROUND';
+  document.querySelector('#board-heading').textContent = 'Set up the next round';
+  renderManualBuilder();
+}
+
+function cancelManualRound() {
+  manualMode = false;
+  manualCandidates = [];
+  manualCourts = [];
+  selectedManualPlayerId = null;
+  document.querySelector('#separate-divisions').disabled = false;
+  document.querySelector('#board-eyebrow').textContent = 'CURRENT ALLOCATION';
+  document.querySelector('#board-heading').textContent = 'Head to your court';
+  renderCourts();
+  renderWaiting();
+  updateGenerateButton();
+}
+
 function renderCourts() {
+  if (manualMode) {
+    renderManualCourts();
+    return;
+  }
   document.querySelector('#courts').innerHTML = rounds.map(({ court, format, color, players, teamA, teamB }) => `
     <article class="court" style="--court-color:${color}">
       <div class="court-number"><strong>COURT ${court}</strong><span>4 / 4</span></div>
@@ -537,17 +707,40 @@ function renderCourts() {
 }
 
 function renderWaiting() {
-  document.querySelector('#waiting-list').innerHTML = waiting.map(player => `<li>
+  const list = document.querySelector('#waiting-list');
+  if (manualMode) {
+    const assigned = new Set(manualCourts.flatMap(court => court.slots.filter(Boolean)));
+    const available = manualCandidates.filter(player => !assigned.has(player.id));
+    list.innerHTML = available.map(player => `<li><button type="button" class="manual-player ${selectedManualPlayerId === player.id ? 'is-selected' : ''}" draggable="true" data-manual-player="${player.id}"><span>${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small></button></li>`).join('');
+    list.querySelectorAll('[data-manual-player]').forEach(button => {
+      button.addEventListener('click', () => {
+        selectedManualPlayerId = selectedManualPlayerId === button.dataset.manualPlayer ? null : button.dataset.manualPlayer;
+        renderManualBuilder();
+      });
+      button.addEventListener('dragstart', event => {
+        event.dataTransfer.setData('text/plain', button.dataset.manualPlayer);
+        event.dataTransfer.effectAllowed = 'move';
+      });
+    });
+    document.querySelector('#queue-eyebrow').textContent = 'MANUAL ROUND';
+    document.querySelector('#queue-heading').textContent = 'Available';
+    document.querySelector('#queue-count').textContent = String(available.length);
+  } else {
+    list.innerHTML = waiting.map(player => `<li>
       <div class="queue-body">
         <div class="queue-identity"><span class="queue-name" title="${player.name}">${player.name}</span><small>Div ${player.division}</small></div>
         <div class="queue-meta"><span class="games-played">${player.sittingOut ? 'On break' : `${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}`}</span><span class="wait-time">${player.roundsWaiting} ${player.roundsWaiting === 1 ? 'round wait' : 'rounds wait'}</span><button type="button" class="inline-action light" data-wait-sit-out="${player.id}" data-sitting-out="${player.sittingOut}">${player.sittingOut ? 'Cancel' : 'Break'}</button></div>
       </div>
     </li>`).join('');
+    document.querySelector('#queue-eyebrow').textContent = 'QUEUE';
+    document.querySelector('#queue-heading').textContent = 'Waiting';
+    document.querySelector('#queue-count').textContent = String(waiting.length);
+  }
   document.querySelector('#waiting-count').textContent = String(waiting.length);
-  document.querySelector('#queue-count').textContent = String(waiting.length);
   const longestWait = waiting.reduce((max, player) => Math.max(max, player.roundsWaiting || 0), 0);
   document.querySelector('#next-break').textContent = waiting.length ? `${longestWait} ${longestWait === 1 ? 'round' : 'rounds'}` : '—';
-  document.querySelectorAll('[data-wait-sit-out]').forEach(button => button.addEventListener('click', () => setSitOut(button.dataset.waitSitOut, button.dataset.sittingOut === 'true')));
+  if (!manualMode) document.querySelectorAll('[data-wait-sit-out]').forEach(button => button.addEventListener('click', () => setSitOut(button.dataset.waitSitOut, button.dataset.sittingOut === 'true')));
+  updateGenerateButton();
 }
 
 // Round timer. The organiser starts it as a round goes on and an audible alarm
@@ -817,6 +1010,10 @@ async function endClubNight() {
 }
 
 async function generateNextRound() {
+  if (manualMode) {
+    await createManualRound();
+    return;
+  }
 
   const button = document.querySelector('#next-round-button');
   button.dataset.busy = 'true';
@@ -852,6 +1049,43 @@ async function generateNextRound() {
   } finally {
     button.dataset.busy = 'false';
     button.disabled = false;
+    updateGenerateButton();
+  }
+}
+
+async function createManualRound() {
+  const issue = manualLineupIssue();
+  if (issue) return;
+  const button = document.querySelector('#next-round-button');
+  button.dataset.busy = 'true';
+  updateGenerateButton();
+  try {
+    const response = await fetch(`${apiBaseUrl}/rounds`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        roundNumber: Number(document.querySelector('#round-number').textContent) + 1,
+        sessionId: selectedSession(),
+        separateDivisions: false,
+        manualCourts: manualCourts.map(court => ({
+          courtNumber: court.court,
+          format: court.format,
+          teamAIds: court.slots.slice(0, 2),
+          teamBIds: court.slots.slice(2, 4)
+        }))
+      })
+    });
+    if (!response.ok) {
+      window.alert(await readErrorMessage(response));
+      return;
+    }
+    applyAllocation(await response.json());
+    await initializeRoster();
+  } catch (error) {
+    window.alert('Could not create the manual round. Check your connection and try again.');
+    console.error('Could not create manual round:', error);
+  } finally {
+    button.dataset.busy = 'false';
     updateGenerateButton();
   }
 }
@@ -891,12 +1125,14 @@ renderViews();
 initializeRoster();
 setupSessionDropdowns();
 document.querySelector('#club-session').addEventListener('change', () => {
+  if (manualMode) cancelManualRound();
   document.querySelector('#board-session').value = selectedSession(); rememberSelectedSession(selectedSession());
   renderScheduleNote();
   renderCheckins();
   initializeLatestRound();
 });
 document.querySelector('#board-session').addEventListener('change', event => {
+  if (manualMode) cancelManualRound();
   document.querySelector('#club-session').value = event.target.value; rememberSelectedSession(event.target.value);
   renderScheduleNote();
   renderCheckins();
@@ -986,6 +1222,7 @@ async function initializeLatestRound() {
 }
 
 document.querySelector('#next-round-button').addEventListener('click', generateNextRound);
+document.querySelector('#manual-round-button').addEventListener('click', () => manualMode ? cancelManualRound() : startManualRound());
 document.querySelector('#announce-button').addEventListener('click', announce);
 document.querySelector('#timer-toggle').addEventListener('click', toggleRoundTimer);
 document.querySelector('#timer-reset').addEventListener('click', resetRoundTimer);

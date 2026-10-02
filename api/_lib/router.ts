@@ -4,7 +4,8 @@ import { readJson, sendError, sendJson } from './http.js';
 import { db } from './db.js';
 import { ensureSchema } from './schema.js';
 import { canSwapFormat, generateRound } from './scheduler.js';
-import { EPOCH, type Gender, type Player } from './types.js';
+import { EPOCH, type CourtAssignment, type GameFormat, type Gender, type Player, type RoundAllocation } from './types.js';
+import { splitLegalForFormat } from './pairing2.js';
 import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions, sessionCourts, createSession, updateSession, setSessionActive } from './repo.js';
 import {
   loadCheckedInPlayers,
@@ -399,7 +400,21 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
     players = await loadCheckedInPlayers(sessionId, nightId);
   }
   const maxCourts = sessionId ? await sessionCourts(sessionId) : undefined;
-  const allocation = generateRound(next, players, formats, separate, maxCourts);
+  let allocation: RoundAllocation;
+  if (Object.prototype.hasOwnProperty.call(body ?? {}, 'manualCourts')) {
+    if (!sessionId || !nightId || !Array.isArray(body.manualCourts)) {
+      sendError(res, 400, 'Manual courts must be submitted for a club-night session');
+      return;
+    }
+    const manual = createManualAllocation(next, players, body.manualCourts, maxCourts);
+    if (typeof manual === 'string') {
+      sendError(res, 400, manual);
+      return;
+    }
+    allocation = manual;
+  } else {
+    allocation = generateRound(next, players, formats, separate, maxCourts);
+  }
   if (!sessionId || !nightId) {
     sendJson(res, 200, serializeAllocation(allocation));
     return;
@@ -436,4 +451,54 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   const checked = await loadCheckedInPlayers(sessionId, await openNightId(sessionId));
   const assigned = new Set(fresh.courts.flatMap((c) => c.players.map((p) => p.id)));
   sendJson(res, 200, serializeAllocation({ ...fresh, waiting: checked.filter((p) => !assigned.has(p.id)) }));
+}
+
+function createManualAllocation(
+  roundNumber: number,
+  players: Player[],
+  definitions: any[],
+  maxCourts: number | undefined,
+): RoundAllocation | string {
+  if (definitions.length === 0) return 'Add at least one complete court';
+  if (maxCourts !== undefined && definitions.length > maxCourts) return 'The lineup has more courts than this session allows';
+
+  const playersById = new Map(players.map((player) => [player.id, player]));
+  const usedPlayers = new Set<string>();
+  const usedCourts = new Set<number>();
+  const courts: CourtAssignment[] = [];
+  const validFormats: GameFormat[] = ['MENS_DOUBLES', 'WOMENS_DOUBLES', 'MIXED_DOUBLES', 'OPEN_DOUBLES'];
+
+  for (const definition of definitions) {
+    const courtNumber = Number(definition?.courtNumber);
+    const format = definition?.format as GameFormat;
+    const teamAIds = definition?.teamAIds;
+    const teamBIds = definition?.teamBIds;
+    if (!Number.isInteger(courtNumber) || courtNumber < 1 || (maxCourts !== undefined && courtNumber > maxCourts) || usedCourts.has(courtNumber)) {
+      return 'Each court must have a unique valid court number';
+    }
+    if (!validFormats.includes(format)) return 'Choose a valid format for every court';
+    if (!Array.isArray(teamAIds) || !Array.isArray(teamBIds) || teamAIds.length !== 2 || teamBIds.length !== 2) {
+      return `Court ${courtNumber} needs two players on each team`;
+    }
+
+    const ids = [...teamAIds, ...teamBIds].map((id) => String(id));
+    if (new Set(ids).size !== 4 || ids.some((id) => usedPlayers.has(id))) return 'A player can only be assigned to one court';
+    const assignedPlayers = ids.map((id) => playersById.get(id));
+    if (assignedPlayers.some((player) => !player)) return 'Every player must be checked in for this session';
+    const courtPlayers = assignedPlayers as Player[];
+    if (courtPlayers.some((player) => player.sittingOut)) return 'Players on a break cannot be assigned to a court';
+
+    const teamA = courtPlayers.slice(0, 2);
+    const teamB = courtPlayers.slice(2, 4);
+    if (!splitLegalForFormat(format, teamA, teamB)) return `The players do not match Court ${courtNumber}'s format`;
+    usedCourts.add(courtNumber);
+    ids.forEach((id) => usedPlayers.add(id));
+    courts.push({ courtNumber, format, players: courtPlayers, teamA, teamB });
+  }
+
+  return {
+    roundNumber,
+    courts: courts.sort((a, b) => a.courtNumber - b.courtNumber),
+    waiting: players.filter((player) => !usedPlayers.has(player.id)),
+  };
 }
