@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { readJson, sendError, sendJson } from './http.js';
 import { db } from './db.js';
 import { ensureSchema } from './schema.js';
-import { canSwapFormat, generateRound } from './scheduler.js';
+import { generateRound } from './scheduler.js';
 import { EPOCH, type CourtAssignment, type GameFormat, type Gender, type Player, type RoundAllocation } from './types.js';
 import { splitLegalForFormat } from './pairing2.js';
 import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions, sessionCourts, createSession, updateSession, setSessionActive } from './repo.js';
@@ -294,6 +294,43 @@ async function handleLatestRound(res: VercelResponse, sessionId: string): Promis
   sendJson(res, 200, serializeAllocation({ ...alloc, waiting: checked.filter((p) => !assigned.has(p.id)) }));
 }
 
+type SwapLineupPlayer = { playerId: string; team: string; gender: Gender; division: string };
+
+function mapSwapLineup(rows: any[]): SwapLineupPlayer[] {
+  return rows.map((row) => ({
+    playerId: String(row.player_id),
+    team: String(row.team),
+    gender: row.gender as Gender,
+    division: String(row.division),
+  }));
+}
+
+function replaceSwapLineupPlayer(
+  lineup: SwapLineupPlayer[],
+  outgoingPlayerId: string,
+  incomingPlayer: Omit<SwapLineupPlayer, 'team'>,
+): SwapLineupPlayer[] {
+  return lineup.map((player) => player.playerId === outgoingPlayerId
+    ? { ...incomingPlayer, team: player.team }
+    : player);
+}
+
+function isValidSwapLineup(format: GameFormat, lineup: SwapLineupPlayer[]): boolean {
+  const teamA = lineup.filter((player) => player.team === 'A');
+  const teamB = lineup.filter((player) => player.team === 'B');
+  if (teamA.length !== 2 || teamB.length !== 2 || lineup.length !== 4) return false;
+  if (format === 'OPEN_DOUBLES') return true;
+  if (format === 'MENS_DOUBLES') return lineup.every((player) => player.gender === 'MALE');
+  if (format === 'WOMENS_DOUBLES') return lineup.every((player) => player.gender === 'FEMALE');
+  const isMixedTeam = (team: SwapLineupPlayer[]) => team.filter((player) => player.gender === 'MALE').length === 1
+    && team.filter((player) => player.gender === 'FEMALE').length === 1;
+  return isMixedTeam(teamA) && isMixedTeam(teamB);
+}
+
+function hasSingleDivision(lineup: SwapLineupPlayer[]): boolean {
+  return lineup.length === 4 && lineup.every((player) => player.division === lineup[0].division);
+}
+
 async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: string): Promise<void> {
   const sql = db();
   const body = await readJson(req);
@@ -307,26 +344,59 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
     order by r.round_number desc limit 1`;
   if ((latest as any[]).length === 0) { sendJson(res, 400, { message: 'No round to swap' }); return; }
   const roundId = String((latest as any[])[0].id);
-  const outgoing = await sql`select rp.court_number, rp.format, rp.team, p.gender
+  const outgoing = await sql`select rp.court_number, rp.format, rp.team, p.gender, p.division
     from venue_round_players rp join players p on p.id = rp.player_id
     where rp.round_id = ${roundId} and rp.player_id = ${outId}`;
   if ((outgoing as any[]).length === 0) { sendJson(res, 400, { message: 'That player is not on a court' }); return; }
   const out = (outgoing as any[])[0];
-    const g = await sql`select gender from players where id = ${inId}`;
-  if ((g as any[]).length === 0) { sendJson(res, 400, { message: 'Replacement player not found' }); return; }
-  const incomingGender = (g as any[])[0].gender;
+  const incomingProfile = await sql`select gender, division from players where id = ${inId}`;
+  if ((incomingProfile as any[]).length === 0) { sendJson(res, 400, { message: 'Replacement player not found' }); return; }
+  const incomingPlayer = (incomingProfile as any[])[0];
+  const incomingGender = incomingPlayer.gender as Gender;
+  const incomingDivision = String(incomingPlayer.division);
+  const separateDivisions = body?.separateDivisions !== false;
   const assignedIncoming = await sql`select court_number, format, team
     from venue_round_players where round_id = ${roundId} and player_id = ${inId}`;
+  if ((assignedIncoming as any[]).length > 0
+    && Number((assignedIncoming as any[])[0].court_number) === Number(out.court_number)) {
+    sendJson(res, 400, { message: 'Choose a player from another court or the waiting list' });
+    return;
+  }
+  const outgoingCourtRows = await sql`select rp.player_id, rp.team, p.gender, p.division
+    from venue_round_players rp join players p on p.id = rp.player_id
+    where rp.round_id = ${roundId} and rp.court_number = ${out.court_number}`;
+  const outgoingLineup = mapSwapLineup(outgoingCourtRows as any[]);
+  const projectedOutgoing = replaceSwapLineupPlayer(outgoingLineup, outId, {
+    playerId: inId,
+    gender: incomingGender,
+    division: incomingDivision,
+  });
+  if (!isValidSwapLineup(out.format as GameFormat, projectedOutgoing)) {
+    sendJson(res, 400, { message: `That replacement would make this ${String(out.format).toLowerCase().replaceAll('_', ' ')} lineup invalid` });
+    return;
+  }
+  if (separateDivisions && !hasSingleDivision(projectedOutgoing)) {
+    sendJson(res, 400, { message: 'When divisions are kept separate, all players on a court must be from the same division' });
+    return;
+  }
 
   if ((assignedIncoming as any[]).length > 0) {
     const incoming = (assignedIncoming as any[])[0];
-    if (Number(incoming.court_number) === Number(out.court_number)) {
-      sendJson(res, 400, { message: 'Choose a player from another court or the waiting list' });
+    const incomingCourtRows = await sql`select rp.player_id, rp.team, p.gender, p.division
+      from venue_round_players rp join players p on p.id = rp.player_id
+      where rp.round_id = ${roundId} and rp.court_number = ${incoming.court_number}`;
+    const incomingLineup = mapSwapLineup(incomingCourtRows as any[]);
+    const projectedIncoming = replaceSwapLineupPlayer(incomingLineup, inId, {
+      playerId: outId,
+      gender: out.gender as Gender,
+      division: String(out.division),
+    });
+    if (!isValidSwapLineup(incoming.format as GameFormat, projectedIncoming)) {
+      sendJson(res, 400, { message: 'That swap would make the other court lineup invalid' });
       return;
     }
-    if (!canSwapFormat(out.format, out.gender, incomingGender)
-      || !canSwapFormat(incoming.format, incomingGender, out.gender)) {
-      sendJson(res, 400, { message: 'The players do not match both courts’ formats' });
+    if (separateDivisions && !hasSingleDivision(projectedIncoming)) {
+      sendJson(res, 400, { message: 'When divisions are kept separate, all players on a court must be from the same division' });
       return;
     }
 
@@ -343,10 +413,6 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
       and not exists (select 1 from venue_round_players rp where rp.round_id = ${roundId} and rp.player_id = ci.player_id)) as ok`;
     if ((waiting as any[])[0]?.ok !== true) {
       sendJson(res, 400, { message: 'Replacement must be waiting and not sitting out' });
-      return;
-    }
-    if (!canSwapFormat(out.format, out.gender, incomingGender)) {
-      sendJson(res, 400, { message: "Replacement does not match this court's format" });
       return;
     }
     await sql`delete from venue_round_players where round_id = ${roundId} and player_id = ${outId}`;

@@ -992,6 +992,14 @@ function canReplaceIn(formatKey, outgoingGender, incomingGender) {
   return formatKey === 'OPEN_DOUBLES' || outgoingGender === incomingGender;
 }
 
+function canKeepDivision(outgoingCourt, outgoing, incoming, incomingCourt = null) {
+  if (!document.querySelector('#separate-divisions').checked) return true;
+  return Boolean(outgoing && incoming
+    && incoming.division === outgoing.division
+    && outgoingCourt?.players.every(player => player.division === outgoing.division)
+    && (!incomingCourt || incomingCourt.players.every(player => player.division === outgoing.division)));
+}
+
 // The API returns the rejection reason as {"message":"..."}; show that
 // instead of the raw JSON blob so an organiser can see why the swap was refused.
 async function readErrorMessage(response) {
@@ -1015,11 +1023,13 @@ function openSwapModal(outPlayerId) {
     .flatMap(otherCourt => otherCourt.players
       .filter(player => player.id !== outPlayerId
         && (!outgoing || canReplaceIn(court.formatKey, outgoing.gender, player.gender))
-        && (!outgoing || canReplaceIn(otherCourt.formatKey, player.gender, outgoing.gender)))
+        && (!outgoing || canReplaceIn(otherCourt.formatKey, player.gender, outgoing.gender))
+        && canKeepDivision(court, outgoing, player, otherCourt))
       .map(player => ({ ...player, source: 'Court ' + otherCourt.court })));
   const waitingReplacements = waiting
     .filter(player => !player.sittingOut
-      && (!outgoing || canReplaceIn(court.formatKey, outgoing.gender, player.gender)))
+      && (!outgoing || canReplaceIn(court.formatKey, outgoing.gender, player.gender))
+      && canKeepDivision(court, outgoing, player))
     .map(player => ({ ...player, source: 'Waiting' }));
   const replacements = [...onCourtReplacements, ...waitingReplacements];
   swapOutPlayerId = outPlayerId;
@@ -1047,6 +1057,10 @@ async function swapQueuePlayer(outPlayerId, inPlayerId) {
     window.alert(`Choose a player who matches this ${court.format.toLowerCase()} court.`);
     return;
   }
+  if (!canKeepDivision(court, outgoing, incoming)) {
+    window.alert('When divisions are kept separate, a replacement must be from the same division as everyone on that court.');
+    return;
+  }
   selectedQueuePlayerId = null;
   renderCourts();
   renderWaiting();
@@ -1057,7 +1071,11 @@ async function swapPlayers(inPlayerId, outPlayerId = swapOutPlayerId) {
   const response = await fetch(`${apiBaseUrl}/sessions/${selectedSession()}/swap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ outPlayerId, inPlayerId })
+    body: JSON.stringify({
+      outPlayerId,
+      inPlayerId,
+      separateDivisions: document.querySelector('#separate-divisions').checked
+    })
   });
   closeSwapModal();
   if (!response.ok) {
