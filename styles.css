@@ -8,8 +8,11 @@
 .court li > span:first-child { min-width:0; flex:1 1 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .court li small, .court li .inline-action { flex:0 0 auto; }
 .court-player-target { cursor:pointer; transition:background-color .15s, outline-color .15s; }
+.court-player-target[draggable="true"] { cursor:grab; }
+.court-player-target[draggable="true"]:active { cursor:grabbing; }
 .court-player-target.swap-ready { cursor:copy; }
 .court-player-target.drop-ready { outline:2px dashed var(--green); outline-offset:2px; background:#eef5d8; }
+.court-player-target.is-selected { outline:2px solid var(--lime); outline-offset:2px; background:#eef5d8; }
 .court-player-target:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
 .queue-identity[draggable="true"] { cursor:grab; border-radius:3px; touch-action:manipulation; }
 .queue-identity[draggable="true"]:active { cursor:grabbing; }

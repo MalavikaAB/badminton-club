@@ -66,6 +66,7 @@ let waiting = [];
 let checkedInCount = 0;
 let swapOutPlayerId = null;
 let selectedQueuePlayerId = null;
+let selectedCourtPlayerId = null;
 let manualMode = false;
 let manualCandidates = [];
 let manualCourts = [];
@@ -315,6 +316,7 @@ function applyAllocation(allocation) {
   manualCourts = [];
   selectedManualPlayerId = null;
   selectedQueuePlayerId = null;
+  selectedCourtPlayerId = null;
   document.querySelector('#separate-divisions').disabled = false;
   document.querySelector('#board-eyebrow').textContent = 'CURRENT ALLOCATION';
   document.querySelector('#board-heading').textContent = 'Head to your court';
@@ -700,7 +702,7 @@ function renderCourts() {
   document.querySelector('#courts').innerHTML = rounds.map(({ court, format, color, players, teamA, teamB }) => `
     <article class="court" style="--court-color:${color}">
       <div class="court-number"><strong>COURT ${court}</strong><span>4 / 4</span></div>
-         <ul>${players.map(player => `<li class="court-player-target ${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''} ${selectedQueuePlayerId ? 'swap-ready' : ''}" data-swap-out="${player.id}" tabindex="0" aria-label="Court player ${escapeHtml(player.name)}; drop a waiting player here, or activate after selecting one"><span title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-menu="${player.id}" aria-label="More swap options for ${escapeHtml(player.name)}">Swap</button></li>`).join('')}</ul>
+         <ul>${players.map(player => `<li class="court-player-target ${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''} ${selectedQueuePlayerId || selectedCourtPlayerId ? 'swap-ready' : ''} ${selectedCourtPlayerId === player.id ? 'is-selected' : ''}" data-swap-out="${player.id}" draggable="true" tabindex="0" aria-label="Court player ${escapeHtml(player.name)}; select to swap with another player"><span title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-menu="${player.id}" draggable="false" aria-label="More swap options for ${escapeHtml(player.name)}">Swap</button></li>`).join('')}</ul>
       <p class="format">${format}</p>
     </article>`).join('');
   document.querySelector('#playing-count').textContent = String(rounds.length * 4);
@@ -709,17 +711,29 @@ function renderCourts() {
     target.addEventListener('click', event => {
       if (event.target.closest('[data-swap-menu]')) return;
       if (selectedQueuePlayerId) swapQueuePlayer(target.dataset.swapOut, selectedQueuePlayerId);
-      else openSwapModal(target.dataset.swapOut);
+      else if (selectedCourtPlayerId && selectedCourtPlayerId !== target.dataset.swapOut) swapAssignedPlayers(target.dataset.swapOut, selectedCourtPlayerId);
+      else selectCourtPlayer(target.dataset.swapOut);
     });
     target.addEventListener('keydown', event => {
       if (event.target.closest('[data-swap-menu]')) return;
       if (selectedQueuePlayerId && (event.key === 'Enter' || event.key === ' ')) {
         event.preventDefault();
         swapQueuePlayer(target.dataset.swapOut, selectedQueuePlayerId);
+      } else if (selectedCourtPlayerId && selectedCourtPlayerId !== target.dataset.swapOut && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault();
+        swapAssignedPlayers(target.dataset.swapOut, selectedCourtPlayerId);
       } else if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
-        openSwapModal(target.dataset.swapOut);
+        selectCourtPlayer(target.dataset.swapOut);
       }
+    });
+    target.addEventListener('dragstart', event => {
+      if (event.target.closest('[data-swap-menu]')) {
+        event.preventDefault();
+        return;
+      }
+      event.dataTransfer.setData('text/plain', target.dataset.swapOut);
+      event.dataTransfer.effectAllowed = 'move';
     });
     target.addEventListener('dragover', event => {
       if (!event.dataTransfer.types.includes('text/plain')) return;
@@ -730,7 +744,9 @@ function renderCourts() {
     target.addEventListener('drop', event => {
       event.preventDefault();
       target.classList.remove('drop-ready');
-      swapQueuePlayer(target.dataset.swapOut, event.dataTransfer.getData('text/plain'));
+      const incomingPlayerId = event.dataTransfer.getData('text/plain');
+      if (waiting.some(player => player.id === incomingPlayerId)) swapQueuePlayer(target.dataset.swapOut, incomingPlayerId);
+      else swapAssignedPlayers(target.dataset.swapOut, incomingPlayerId);
     });
   });
   document.querySelectorAll('[data-swap-menu]').forEach(button => button.addEventListener('click', () => openSwapModal(button.dataset.swapMenu)));
@@ -763,7 +779,9 @@ function renderWaiting() {
       </div>
     </li>`).join('');
     document.querySelector('#queue-eyebrow').textContent = 'QUEUE';
-    document.querySelector('#queue-heading').textContent = selectedQueuePlayerId ? 'Tap a court player' : 'Waiting';
+    document.querySelector('#queue-heading').textContent = selectedQueuePlayerId
+      ? 'Tap a court player'
+      : selectedCourtPlayerId ? 'Tap another court player' : 'Waiting';
     document.querySelector('#queue-count').textContent = String(waiting.length);
     list.querySelectorAll('[data-queue-player]').forEach(player => {
       player.addEventListener('click', () => selectQueuePlayer(player.dataset.queuePlayer));
@@ -788,13 +806,29 @@ function renderWaiting() {
 
 function selectQueuePlayer(playerId) {
   selectedQueuePlayerId = selectedQueuePlayerId === playerId ? null : playerId;
-  document.querySelector('#queue-heading').textContent = selectedQueuePlayerId ? 'Tap a court player' : 'Waiting';
+  selectedCourtPlayerId = null;
+  updateSwapSelection();
+}
+
+function selectCourtPlayer(playerId) {
+  selectedQueuePlayerId = null;
+  selectedCourtPlayerId = selectedCourtPlayerId === playerId ? null : playerId;
+  updateSwapSelection();
+}
+
+function updateSwapSelection() {
+  document.querySelector('#queue-heading').textContent = selectedQueuePlayerId
+    ? 'Tap a court player'
+    : selectedCourtPlayerId ? 'Tap another court player' : 'Waiting';
   document.querySelectorAll('[data-queue-player]').forEach(player => {
     const selected = player.dataset.queuePlayer === selectedQueuePlayerId;
     player.classList.toggle('queue-player-selected', selected);
     player.setAttribute('aria-pressed', String(selected));
   });
-  document.querySelectorAll('[data-swap-out]').forEach(target => target.classList.toggle('swap-ready', Boolean(selectedQueuePlayerId)));
+  document.querySelectorAll('[data-swap-out]').forEach(target => {
+    target.classList.toggle('swap-ready', Boolean(selectedQueuePlayerId || selectedCourtPlayerId));
+    target.classList.toggle('is-selected', target.dataset.swapOut === selectedCourtPlayerId);
+  });
 }
 
 // Round timer. The organiser starts it as a round goes on and an audible alarm
@@ -1062,8 +1096,36 @@ async function swapQueuePlayer(outPlayerId, inPlayerId) {
     return;
   }
   selectedQueuePlayerId = null;
+  selectedCourtPlayerId = null;
+  updateSwapSelection();
   renderCourts();
   renderWaiting();
+  await swapPlayers(inPlayerId, outPlayerId);
+}
+
+async function swapAssignedPlayers(outPlayerId, inPlayerId) {
+  const outgoingCourt = rounds.find(court => court.players.some(player => player.id === outPlayerId));
+  const incomingCourt = rounds.find(court => court.players.some(player => player.id === inPlayerId));
+  const outgoing = outgoingCourt?.players.find(player => player.id === outPlayerId);
+  const incoming = incomingCourt?.players.find(player => player.id === inPlayerId);
+  if (!outgoingCourt || !incomingCourt || !outgoing || !incoming) return;
+  if (outgoingCourt.court === incomingCourt.court) {
+    window.alert('Choose a player from a different court.');
+    return;
+  }
+  if (!canReplaceIn(outgoingCourt.formatKey, outgoing.gender, incoming.gender)
+    || !canReplaceIn(incomingCourt.formatKey, incoming.gender, outgoing.gender)) {
+    window.alert('Those players do not match both court formats.');
+    return;
+  }
+  if (!canKeepDivision(outgoingCourt, outgoing, incoming, incomingCourt)
+    || !canKeepDivision(incomingCourt, incoming, outgoing, outgoingCourt)) {
+    window.alert('When divisions are kept separate, both courts must remain in one division.');
+    return;
+  }
+  selectedQueuePlayerId = null;
+  selectedCourtPlayerId = null;
+  updateSwapSelection();
   await swapPlayers(inPlayerId, outPlayerId);
 }
 
