@@ -7,6 +7,19 @@
 .court li.team-b { border-left:3px solid var(--coral); padding-left:8px; }
 .court li > span:first-child { min-width:0; flex:1 1 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .court li small, .court li .inline-action { flex:0 0 auto; }
+.court-player-target { cursor:pointer; transition:background-color .15s, outline-color .15s; }
+.court-player-target.swap-ready { cursor:copy; }
+.court-player-target.drop-ready { outline:2px dashed var(--green); outline-offset:2px; background:#eef5d8; }
+.court-player-target:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
+.queue-identity[draggable="true"] { cursor:grab; border-radius:3px; touch-action:manipulation; }
+.queue-identity[draggable="true"]:active { cursor:grabbing; }
+.queue-identity.queue-player-selected { outline:2px solid var(--lime); outline-offset:3px; }
+.modal { position:fixed; inset:0; background:rgba(24,34,30,.55); z-index:3; display:grid; place-items:center; padding:24px; }
+.modal.hidden { display:none; }
+.modal-card { background:var(--panel); max-width:420px; width:min(420px,100%); max-height:calc(100vh - 48px); max-height:calc(100dvh - 48px); overflow-y:auto; padding:28px; border:1px solid var(--line); }
+.modal-card ol { list-style:none; padding:18px 0; margin:0; max-height:52vh; overflow-y:auto; }
+.modal-card li button { width:100%; text-align:left; border:1px solid var(--line); background:var(--paper); padding:12px 14px; margin-bottom:8px; cursor:pointer; font:600 16px 'Space Grotesk'; }
+.modal-card li button small { display:block; color:var(--muted); font:11px 'DM Mono'; margin-top:4px; }
 .manual-mode-button { width:100%; margin-top:12px; }
 .manual-court { min-height:280px; }
 .manual-court .court-number { align-items:center; gap:10px; }
@@ -171,12 +184,6 @@ select { appearance:none; padding-right:38px; background-image:linear-gradient(4
 .court .inline-action { color:var(--coral); margin-left:8px; }
 .waiting-panel .inline-action.light { color:var(--lime); }
 .waiting-panel li { flex-wrap:wrap; }
-.modal { position:fixed; inset:0; background:rgba(24,34,30,.55); z-index:3; display:grid; place-items:center; padding:24px; }
-.modal.hidden { display:none; }
-.modal-card { background:var(--panel); max-width:420px; width:min(420px,100%); max-height:calc(100vh - 48px); max-height:calc(100dvh - 48px); overflow-y:auto; padding:28px; border:1px solid var(--line); }
-.modal-card ol { list-style:none; padding:18px 0; margin:0; max-height:52vh; overflow-y:auto; }
-.modal-card li button { width:100%; text-align:left; border:1px solid var(--line); background:var(--paper); padding:12px 14px; margin-bottom:8px; cursor:pointer; font:600 16px 'Space Grotesk'; }
-.modal-card li button small { display:block; color:var(--muted); font:11px 'DM Mono'; margin-top:4px; }
 /* The divs toggle carries the same weight as the row actions, so it matches
    their 14px rather than the 12px it inherited when it sat below the list. */
 .toggle-row { display:flex; align-items:center; gap:10px; margin:0 0 14px; color:#f7f6ed; font:14px 'DM Mono'; text-transform:none; cursor:pointer; }

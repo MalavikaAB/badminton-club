@@ -65,6 +65,7 @@ let rounds = [];
 let waiting = [];
 let checkedInCount = 0;
 let swapOutPlayerId = null;
+let selectedQueuePlayerId = null;
 let manualMode = false;
 let manualCandidates = [];
 let manualCourts = [];
@@ -313,6 +314,7 @@ function applyAllocation(allocation) {
   manualCandidates = [];
   manualCourts = [];
   selectedManualPlayerId = null;
+  selectedQueuePlayerId = null;
   document.querySelector('#separate-divisions').disabled = false;
   document.querySelector('#board-eyebrow').textContent = 'CURRENT ALLOCATION';
   document.querySelector('#board-heading').textContent = 'Head to your court';
@@ -698,12 +700,40 @@ function renderCourts() {
   document.querySelector('#courts').innerHTML = rounds.map(({ court, format, color, players, teamA, teamB }) => `
     <article class="court" style="--court-color:${color}">
       <div class="court-number"><strong>COURT ${court}</strong><span>4 / 4</span></div>
-         <ul>${players.map(player => `<li class="${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''}"><span title="${player.name}">${player.name}</span><small>Div ${player.division} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-out="${player.id}">Swap</button></li>`).join('')}</ul>
+         <ul>${players.map(player => `<li class="court-player-target ${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''} ${selectedQueuePlayerId ? 'swap-ready' : ''}" data-swap-out="${player.id}" tabindex="0" aria-label="Court player ${escapeHtml(player.name)}; drop a waiting player here, or activate after selecting one"><span title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-menu="${player.id}" aria-label="More swap options for ${escapeHtml(player.name)}">Swap</button></li>`).join('')}</ul>
       <p class="format">${format}</p>
     </article>`).join('');
   document.querySelector('#playing-count').textContent = String(rounds.length * 4);
   document.querySelector('#courts-count').textContent = String(rounds.length);
-  document.querySelectorAll('[data-swap-out]').forEach(button => button.addEventListener('click', () => openSwapModal(button.dataset.swapOut)));
+  document.querySelectorAll('[data-swap-out]').forEach(target => {
+    target.addEventListener('click', event => {
+      if (event.target.closest('[data-swap-menu]')) return;
+      if (selectedQueuePlayerId) swapQueuePlayer(target.dataset.swapOut, selectedQueuePlayerId);
+      else openSwapModal(target.dataset.swapOut);
+    });
+    target.addEventListener('keydown', event => {
+      if (event.target.closest('[data-swap-menu]')) return;
+      if (selectedQueuePlayerId && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault();
+        swapQueuePlayer(target.dataset.swapOut, selectedQueuePlayerId);
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openSwapModal(target.dataset.swapOut);
+      }
+    });
+    target.addEventListener('dragover', event => {
+      if (!event.dataTransfer.types.includes('text/plain')) return;
+      event.preventDefault();
+      target.classList.add('drop-ready');
+    });
+    target.addEventListener('dragleave', () => target.classList.remove('drop-ready'));
+    target.addEventListener('drop', event => {
+      event.preventDefault();
+      target.classList.remove('drop-ready');
+      swapQueuePlayer(target.dataset.swapOut, event.dataTransfer.getData('text/plain'));
+    });
+  });
+  document.querySelectorAll('[data-swap-menu]').forEach(button => button.addEventListener('click', () => openSwapModal(button.dataset.swapMenu)));
 }
 
 function renderWaiting() {
@@ -728,19 +758,43 @@ function renderWaiting() {
   } else {
     list.innerHTML = waiting.map(player => `<li>
       <div class="queue-body">
-        <div class="queue-identity"><span class="queue-name" title="${player.name}">${player.name}</span><small>Div ${player.division}</small></div>
+        <div class="queue-identity ${selectedQueuePlayerId === player.id ? 'queue-player-selected' : ''}" ${player.sittingOut ? '' : `draggable="true" data-queue-player="${player.id}" role="button" tabindex="0" aria-pressed="${selectedQueuePlayerId === player.id}" aria-label="Select ${escapeHtml(player.name)} to swap onto a court"`}><span class="queue-name" title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)}</small></div>
         <div class="queue-meta"><span class="games-played">${player.sittingOut ? 'On break' : `${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}`}</span><span class="wait-time">${player.roundsWaiting} ${player.roundsWaiting === 1 ? 'round wait' : 'rounds wait'}</span><button type="button" class="inline-action light" data-wait-sit-out="${player.id}" data-sitting-out="${player.sittingOut}">${player.sittingOut ? 'Cancel' : 'Break'}</button></div>
       </div>
     </li>`).join('');
     document.querySelector('#queue-eyebrow').textContent = 'QUEUE';
-    document.querySelector('#queue-heading').textContent = 'Waiting';
+    document.querySelector('#queue-heading').textContent = selectedQueuePlayerId ? 'Tap a court player' : 'Waiting';
     document.querySelector('#queue-count').textContent = String(waiting.length);
+    list.querySelectorAll('[data-queue-player]').forEach(player => {
+      player.addEventListener('click', () => selectQueuePlayer(player.dataset.queuePlayer));
+      player.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          selectQueuePlayer(player.dataset.queuePlayer);
+        }
+      });
+      player.addEventListener('dragstart', event => {
+        event.dataTransfer.setData('text/plain', player.dataset.queuePlayer);
+        event.dataTransfer.effectAllowed = 'move';
+      });
+    });
   }
   document.querySelector('#waiting-count').textContent = String(waiting.length);
   const longestWait = waiting.reduce((max, player) => Math.max(max, player.roundsWaiting || 0), 0);
   document.querySelector('#next-break').textContent = waiting.length ? `${longestWait} ${longestWait === 1 ? 'round' : 'rounds'}` : '—';
   if (!manualMode) document.querySelectorAll('[data-wait-sit-out]').forEach(button => button.addEventListener('click', () => setSitOut(button.dataset.waitSitOut, button.dataset.sittingOut === 'true')));
   updateGenerateButton();
+}
+
+function selectQueuePlayer(playerId) {
+  selectedQueuePlayerId = selectedQueuePlayerId === playerId ? null : playerId;
+  document.querySelector('#queue-heading').textContent = selectedQueuePlayerId ? 'Tap a court player' : 'Waiting';
+  document.querySelectorAll('[data-queue-player]').forEach(player => {
+    const selected = player.dataset.queuePlayer === selectedQueuePlayerId;
+    player.classList.toggle('queue-player-selected', selected);
+    player.setAttribute('aria-pressed', String(selected));
+  });
+  document.querySelectorAll('[data-swap-out]').forEach(target => target.classList.toggle('swap-ready', Boolean(selectedQueuePlayerId)));
 }
 
 // Round timer. The organiser starts it as a round goes on and an audible alarm
@@ -973,21 +1027,37 @@ function openSwapModal(outPlayerId) {
     ? 'Choose a replacement for ' + outgoing.name + '. A player on another court will swap places; a waiting player will take their place.'
     : 'Pick someone waiting to come on court.';
   document.querySelector('#swap-options').innerHTML = replacements.length
-    ? replacements.map(player => '<li><button type="button" data-swap-in="' + player.id + '">' + player.name + '<small>' + player.source + ' · Div ' + player.division + ' · ' + player.gamesPlayed + ' games tonight</small></button></li>').join('')
+    ? replacements.map(player => '<li><button type="button" data-swap-in="' + player.id + '">' + escapeHtml(player.name) + '<small>' + player.source + ' · Div ' + escapeHtml(player.division) + ' · ' + player.gamesPlayed + ' games tonight</small></button></li>').join('')
     : '<li class="empty-state">Nobody available can replace ' + (outgoing?.name || 'this player') + ' on this ' + (court?.format || '') + ' court.</li>';
   document.querySelector('#swap-modal').classList.remove('hidden');
   document.querySelectorAll('[data-swap-in]').forEach(button => button.addEventListener('click', () => swapPlayers(button.dataset.swapIn)));
 }
+
 function closeSwapModal() {
   swapOutPlayerId = null;
   document.querySelector('#swap-modal').classList.add('hidden');
 }
 
-async function swapPlayers(inPlayerId) {
+async function swapQueuePlayer(outPlayerId, inPlayerId) {
+  const court = rounds.find(item => item.players.some(player => player.id === outPlayerId));
+  const outgoing = court?.players.find(player => player.id === outPlayerId);
+  const incoming = waiting.find(player => player.id === inPlayerId && !player.sittingOut);
+  if (!court || !outgoing || !incoming) return;
+  if (!canReplaceIn(court.formatKey, outgoing.gender, incoming.gender)) {
+    window.alert(`Choose a player who matches this ${court.format.toLowerCase()} court.`);
+    return;
+  }
+  selectedQueuePlayerId = null;
+  renderCourts();
+  renderWaiting();
+  await swapPlayers(inPlayerId, outPlayerId);
+}
+
+async function swapPlayers(inPlayerId, outPlayerId = swapOutPlayerId) {
   const response = await fetch(`${apiBaseUrl}/sessions/${selectedSession()}/swap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ outPlayerId: swapOutPlayerId, inPlayerId })
+    body: JSON.stringify({ outPlayerId, inPlayerId })
   });
   closeSwapModal();
   if (!response.ok) {
