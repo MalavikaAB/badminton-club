@@ -6,7 +6,7 @@ const apiBaseUrl = window.location.hostname === 'localhost' || window.location.h
 
 const DEMO_USERNAME = 'organizer';
 const DEMO_PASSWORD = 'badminton123';
-const SESSION_KEY = 'badminton-club-dummy-auth'; const SELECTED_SESSION_KEY = 'badminton-club-selected-session';
+const SESSION_KEY = 'badminton-club-dummy-auth'; const SELECTED_SESSION_KEY = 'badminton-club-selected-session'; const MANUAL_DRAFT_KEY = 'badminton-club-manual-round-draft';
 let appStarted = false;
 // Never keep demo credentials in the visible address bar or browser history.
 if (window.location.search) window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
@@ -578,6 +578,51 @@ function manualLineupIssue() {
   return '';
 }
 
+function persistManualDraft() {
+  if (!manualMode) return;
+  try {
+    localStorage.setItem(MANUAL_DRAFT_KEY, JSON.stringify({
+      sessionId: selectedSession(),
+      roundNumber: Number(document.querySelector('#round-number').textContent),
+      candidates: manualCandidates,
+      courts: manualCourts
+    }));
+  } catch { /* Storage unavailable. */ }
+}
+
+function clearManualDraft() {
+  try { localStorage.removeItem(MANUAL_DRAFT_KEY); } catch { /* Storage unavailable. */ }
+}
+
+function restoreManualDraft() {
+  let draft;
+  try {
+    draft = JSON.parse(localStorage.getItem(MANUAL_DRAFT_KEY) || 'null');
+  } catch { return; }
+  if (!draft || draft.sessionId !== selectedSession()) return;
+  if (Number(draft.roundNumber) !== Number(document.querySelector('#round-number').textContent)) {
+    clearManualDraft();
+    return;
+  }
+  const candidates = Array.isArray(draft.candidates) ? draft.candidates : [];
+  const candidateIds = new Set(candidates.map(player => player.id));
+  if (!candidateIds.size || !Array.isArray(draft.courts) || !draft.courts.length
+    || draft.courts.some(court => !Array.isArray(court.slots) || court.slots.length !== 4
+      || !manualFormats.some(([format]) => format === court.format)
+      || court.slots.some(id => id !== null && !candidateIds.has(id)))) {
+    clearManualDraft();
+    return;
+  }
+  manualCandidates = candidates;
+  manualCourts = draft.courts;
+  manualMode = true;
+  selectedManualPlayerId = null;
+  document.querySelector('#separate-divisions').disabled = true;
+  document.querySelector('#board-eyebrow').textContent = 'MANUAL ROUND';
+  document.querySelector('#board-heading').textContent = 'Set up the next round';
+  renderManualBuilder();
+}
+
 function renderManualCourts() {
   const courts = document.querySelector('#courts');
   courts.innerHTML = manualCourts.map((court, courtIndex) => `
@@ -590,6 +635,7 @@ function renderManualCourts() {
     </article>`).join('');
   courts.querySelectorAll('[data-manual-format]').forEach(select => select.addEventListener('change', () => {
     manualCourts[Number(select.dataset.manualFormat)].format = select.value;
+    persistManualDraft();
     renderManualBuilder();
   }));
   courts.querySelectorAll('[data-manual-slot]').forEach(slot => {
@@ -602,6 +648,7 @@ function renderManualCourts() {
       if (selectedManualPlayerId) assignManualPlayer(selectedManualPlayerId, courtIndex, slotIndex);
       else if (manualCourts[courtIndex].slots[slotIndex]) {
         manualCourts[courtIndex].slots[slotIndex] = null;
+        persistManualDraft();
         renderManualBuilder();
       }
     });
@@ -637,6 +684,7 @@ function assignManualPlayer(playerId, courtIndex, slotIndex) {
   });
   manualCourts[courtIndex].slots[slotIndex] = playerId;
   selectedManualPlayerId = null;
+  persistManualDraft();
   renderManualBuilder();
 }
 
@@ -673,10 +721,12 @@ async function startManualRound() {
   document.querySelector('#separate-divisions').disabled = true;
   document.querySelector('#board-eyebrow').textContent = 'MANUAL ROUND';
   document.querySelector('#board-heading').textContent = 'Set up the next round';
+  persistManualDraft();
   renderManualBuilder();
 }
 
 function cancelManualRound() {
+  clearManualDraft();
   manualMode = false;
   manualCandidates = [];
   manualCourts = [];
@@ -1241,6 +1291,7 @@ async function createManualRound() {
       window.alert(await readErrorMessage(response));
       return;
     }
+    clearManualDraft();
     applyAllocation(await response.json());
     await initializeRoster();
   } catch (error) {
@@ -1266,13 +1317,28 @@ function announceCourt({ court, format, color, players, teamA, teamB }) {
 // own name, their partner and their court straight off the screen. Esc or a tap
 // anywhere closes it again.
 function announce() {
-  if (!rounds.length) return;
+  const announceCourts = manualMode
+    ? manualCourts.map(court => {
+      const players = court.slots.filter(Boolean)
+        .map(playerId => manualCandidates.find(player => player.id === playerId))
+        .filter(Boolean);
+      return {
+        court: court.court,
+        format: formatLabels[court.format] || court.format,
+        color: colourForFormat(court.format),
+        players,
+        teamA: court.slots.slice(0, 2).filter(Boolean),
+        teamB: court.slots.slice(2).filter(Boolean)
+      };
+    })
+    : rounds;
+  if (!announceCourts.length) return;
   const overlay = document.createElement('div');
   overlay.className = 'announce';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
   overlay.setAttribute('aria-label', 'Courts for this round');
-  overlay.innerHTML = `<div class="courts">${rounds.map(announceCourt).join('')}</div>`;
+  overlay.innerHTML = `<div class="courts">${announceCourts.map(announceCourt).join('')}</div>`;
   const close = () => {
     document.removeEventListener('keydown', onKey);
     overlay.remove();
@@ -1381,6 +1447,7 @@ async function initializeLatestRound() {
   const response = await fetch(`${apiBaseUrl}/sessions/${selectedSession()}/rounds/latest`);
   if (!response.ok) throw new Error(`Could not load latest round: ${response.status}`);
   applyAllocation(await response.json());
+  restoreManualDraft();
 }
 
 document.querySelector('#next-round-button').addEventListener('click', generateNextRound);
