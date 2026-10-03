@@ -4,24 +4,45 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Club Night Board</title>
-  <link rel="stylesheet" href="styles.css?v=20260925-timer-divmix-editvenue">
+  <link rel="stylesheet" href="styles.css?v=20261003-server-auth">
 </head>
 <body data-tab="board-view">
   <div id="auth-screen" class="auth-screen">
     <div class="auth-card">
       <p class="eyebrow">BADMINTON CLUB</p>
-      <h1>Organiser sign in</h1>
-      <p class="muted">Sign in to manage club night, check-ins, and players.</p>
-      <form id="login-form" class="login-form" action="javascript:void(0);" onsubmit="return handleDemoLogin(event);">
-        <label for="login-username">Username</label>
-        <input id="login-username" name="username" autocomplete="username" required placeholder="Enter username">
+      <h1 id="login-title">Sign in</h1>
+      <p class="muted" id="login-description">Sign in to manage club night, check-ins, and players.</p>
+      <form id="login-form" class="login-form">
+        <label for="login-role">Account type</label>
+        <select id="login-role" name="role">
+          <option value="organizer">Organiser</option>
+          <option value="player">Player</option>
+        </select>
+        <div id="organizer-login-field">
+          <label for="login-username">Username</label>
+          <input id="login-username" name="username" autocomplete="username" maxlength="120" required placeholder="Enter username">
+        </div>
         <label for="login-password">Password</label>
-        <input id="login-password" name="password" type="password" autocomplete="current-password" required placeholder="Enter password">
+        <input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="256" required placeholder="Enter password">
         <p id="login-error" class="login-error" role="alert" hidden></p>
         <button class="primary-button" type="submit">Sign in <span>→</span></button>
       </form>
     </div>
   </div>
+  <main id="player-screen" class="player-screen" hidden>
+    <header class="player-header">
+      <div>
+        <p class="eyebrow">BADMINTON CLUB</p>
+        <h1>Court allocation</h1>
+        <p class="muted">Choose a session to see its current courts.</p>
+      </div>
+      <button type="button" class="secondary-button" data-logout>Log out</button>
+    </header>
+    <label class="player-session-label" for="player-session-select">Session</label>
+    <select id="player-session-select" class="player-session-select"></select>
+    <p id="player-allocation-status" class="player-allocation-status" role="status"></p>
+    <div id="player-courts" class="courts player-courts"></div>
+  </main>
   <main class="shell">
     <nav class="tabs" aria-label="Club night sections">
       <button class="tab active" data-view="board-view">Board</button>
@@ -166,6 +187,6 @@
       <button class="secondary-button" id="swap-cancel">Cancel</button>
     </div>
   </div>
-  <script src="app.js?v=20261002-manual-round-swap"></script>
+  <script src="app.js?v=20261003-server-auth"></script>
 </body>
 </html>

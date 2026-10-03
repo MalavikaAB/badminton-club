@@ -14,6 +14,12 @@ import {
   syncPairCounts,
 } from './repo2.js';
 import { latestRound } from './latest.js';
+import {
+  checkCredentials,
+  clearSessionCookie,
+  roleFromRequest,
+  setSessionCookie,
+} from './auth.js';
 
 function parts(req: VercelRequest): string[] {
   const q = req.query.path;
@@ -48,7 +54,61 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
       return;
     }
 
+    if (method !== 'GET' && method !== 'HEAD' && !isSameOriginRequest(req)) {
+      sendError(res, 403, 'Cross-origin requests are not allowed');
+      return;
+    }
+
+    if (root[0] === 'auth' && root.length === 2 && root[1] === 'logout' && method === 'POST') {
+      clearSessionCookie(res);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     await ensureSchema();
+
+    if (root[0] === 'auth' && root.length === 2 && root[1] === 'login' && method === 'POST') {
+      const body = await readJson(req);
+      const role = body?.role;
+      const username = String(body?.username ?? '').trim();
+      const password = typeof body?.password === 'string' ? body.password : '';
+      if ((role !== 'organizer' && role !== 'player') || !password) {
+        sendError(res, 400, 'Role and password are required');
+        return;
+      }
+      const valid = await checkCredentials(role, username, password);
+      if (valid === null) {
+        sendError(res, 503, 'Login is not configured. Set the required server environment variables.');
+        return;
+      }
+      if (!valid) {
+        sendError(res, 401, 'Incorrect username or password');
+        return;
+      }
+      setSessionCookie(res, role);
+      sendJson(res, 200, { role });
+      return;
+    }
+
+    if (root[0] === 'auth' && root.length === 2 && root[1] === 'me' && method === 'GET') {
+      const role = roleFromRequest(req);
+      if (!role) {
+        sendError(res, 401, 'Sign in required');
+        return;
+      }
+      sendJson(res, 200, { role });
+      return;
+    }
+
+    const role = roleFromRequest(req);
+    if (!role) {
+      sendError(res, 401, 'Sign in required');
+      return;
+    }
+    if (role === 'player' && !isPlayerReadRequest(method, root, req.query.all)) {
+      sendError(res, 403, 'This account can only view session court allocations');
+      return;
+    }
 
     if (root[0] === 'players' && root.length === 1) {
       await handlePlayers(req, res, method);
@@ -129,6 +189,10 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
         await handleLatestRound(res, sessionId);
         return;
       }
+      if (method === 'GET' && root[2] === 'player-allocation' && root.length === 3) {
+        await handlePlayerAllocation(res, sessionId);
+        return;
+      }
       if (method === 'POST' && root[2] === 'swap' && root.length === 3) {
         await handleSwap(req, res, sessionId);
         return;
@@ -147,6 +211,26 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
     sendJson(res, 404, { message: 'Not found' });
   } catch (e: any) {
     sendJson(res, 500, { message: e?.message ?? 'Request failed' });
+  }
+}
+
+function isPlayerReadRequest(method: string, root: string[], includeInactive: unknown): boolean {
+  return (method === 'GET' && root.length === 1 && root[0] === 'sessions'
+      && includeInactive !== '1' && includeInactive !== 'true')
+    || (method === 'GET' && root.length === 3 && root[0] === 'sessions' && root[2] === 'player-allocation');
+}
+
+function isSameOriginRequest(req: VercelRequest): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  const forwardedHost = req.headers['x-forwarded-host'];
+  const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost)
+    ?? req.headers.host;
+  if (!host) return false;
+  try {
+    return new URL(origin).host.toLowerCase() === host.split(',')[0].trim().toLowerCase();
+  } catch {
+    return false;
   }
 }
 
@@ -320,6 +404,28 @@ async function handleLatestRound(res: VercelResponse, sessionId: string): Promis
   }
   const assigned = new Set(alloc.courts.flatMap((c) => c.players.map((p) => p.id)));
   sendJson(res, 200, serializeAllocation({ ...alloc, waiting: checked.filter((p) => !assigned.has(p.id)) }));
+}
+
+async function handlePlayerAllocation(res: VercelResponse, sessionId: string): Promise<void> {
+  const activeSession = await db()`select 1 from venue_sessions where id = ${sessionId} and active = true`;
+  if (!(activeSession as any[]).length) {
+    sendError(res, 404, 'Session not found');
+    return;
+  }
+  await resetStaleNight(sessionId);
+  const nightId = await openNightId(sessionId);
+  const allocation = await latestRound(sessionId, nightId);
+  sendJson(res, 200, {
+    roundNumber: allocation.roundNumber,
+    courts: allocation.courts.map((court) => ({
+      courtNumber: court.courtNumber,
+      format: court.format,
+      players: court.players.map((player) => ({
+        name: player.name,
+        team: court.teamA.some((member) => member.id === player.id) ? 'A' : 'B',
+      })),
+    })),
+  });
 }
 
 type SwapLineupPlayer = { playerId: string; team: string; gender: Gender; division: string };

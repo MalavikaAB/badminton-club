@@ -8,6 +8,7 @@ A web-based badminton club night board and organiser tool.
 - Static HTML/CSS/JS frontend (`index.html`, `app.js`, `styles.css`)
 - Supabase PostgreSQL persistence
 - Scheduler and pairing logic in `api/_lib/scheduler.ts` and `api/_lib/pairing.ts`
+- Server-side organiser/player authentication with role-restricted API access
 
 ## Project layout
 
@@ -21,4 +22,3 @@ See `DEPLOYMENT.md` for setup and deployment steps.
 
 > The project previously shipped a Java/Spring Boot backend on Render.
 > It has been removed; all development continues on the TypeScript API.
-

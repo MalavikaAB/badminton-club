@@ -1,4 +1,5 @@
 import { db } from './db.js';
+import { provisionCredentials } from './auth.js';
 
 let ensured = false;
 
@@ -11,6 +12,10 @@ let ensured = false;
  */
 const SCHEMA_SQL = `
 create extension if not exists pgcrypto;
+create table if not exists app_credentials (
+  role text primary key check (role in ('organizer', 'player')),
+  password_hash text not null
+);
 create table if not exists players (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -105,6 +110,6 @@ export async function ensureSchema(): Promise<void> {
   if (ensured) return;
   const sql = db();
   await sql.unsafe(SCHEMA_SQL);
+  await provisionCredentials(sql);
   ensured = true;
 }
-

@@ -1,53 +1,78 @@
-// Local dev: http://localhost:3000/api/club-night
-// Production (same Vercel project): /api/club-night
-const apiBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:3000/api/club-night'
-  : '/api/club-night';
+const apiBaseUrl = '/api/club-night';
 
-const DEMO_USERNAME = 'organizer';
-const DEMO_PASSWORD = 'badminton123';
-const SESSION_KEY = 'badminton-club-dummy-auth'; const SELECTED_SESSION_KEY = 'badminton-club-selected-session'; const MANUAL_DRAFT_KEY = 'badminton-club-manual-round-draft';
+const SELECTED_SESSION_KEY = 'badminton-club-selected-session'; const MANUAL_DRAFT_KEY = 'badminton-club-manual-round-draft';
 let appStarted = false;
-// Never keep demo credentials in the visible address bar or browser history.
+let playerRefreshTimer = null;
+// Avoid retaining URL query parameters that could contain sensitive data.
 if (window.location.search) window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
-
-
-function isAuthenticated() {
-  try {
-    return sessionStorage.getItem(SESSION_KEY) === DEMO_USERNAME;
-  } catch {
-    return false;
-  }
-}
 
 function showLogin(message = '') {
   document.body.classList.remove('authenticated');
+  document.body.classList.remove('player-authenticated');
+  document.querySelector('#player-screen').hidden = true;
   const error = document.querySelector('#login-error');
   error.hidden = !message;
   error.textContent = message;
   document.querySelector('#login-password').value = '';
-  document.querySelector('#login-username').focus();
+  const isOrganizer = document.querySelector('#login-role').value === 'organizer';
+  document.querySelector(isOrganizer ? '#login-username' : '#login-password').focus();
 }
-function handleDemoLogin(event) {
+
+function updateLoginRole() {
+  const isOrganizer = document.querySelector('#login-role').value === 'organizer';
+  document.querySelector('#organizer-login-field').hidden = !isOrganizer;
+  document.querySelector('#login-username').required = isOrganizer;
+  document.querySelector('#login-title').textContent = isOrganizer ? 'Organiser sign in' : 'Player sign in';
+  document.querySelector('#login-description').textContent = isOrganizer
+    ? 'Sign in to manage club night, check-ins, and players.'
+    : 'Sign in to view court allocations for a session.';
+}
+
+async function handleLogin(event) {
   event.preventDefault();
-  const username = document.querySelector('#login-username').value.trim().toLowerCase();
+  const role = document.querySelector('#login-role').value;
+  const username = document.querySelector('#login-username').value.trim();
   const password = document.querySelector('#login-password').value;
-  if (username !== DEMO_USERNAME || password !== DEMO_PASSWORD) {
-    showLogin('Incorrect username or password. Try the demo credentials below.');
-    return false;
+  document.querySelector('#login-password').value = '';
+  try {
+    const response = await fetch(`${apiBaseUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, username, password })
+    });
+    if (!response.ok) {
+      showLogin(await readErrorMessage(response));
+      return;
+    }
+    const result = await response.json();
+    if (result.role !== 'organizer' && result.role !== 'player') throw new Error('Invalid sign-in response');
+    document.querySelector('#login-error').hidden = true;
+    await startAuthenticatedApp(result.role);
+  } catch (error) {
+    console.error('Could not sign in:', error);
+    showLogin('Could not contact the sign-in service. Please try again.');
   }
-  try { sessionStorage.setItem(SESSION_KEY, username); } catch { /* session-only demo auth */ }
-  document.querySelector('#login-error').hidden = true;
-  startAuthenticatedApp();
-  return false;
 }
-document.querySelector('#login-form').addEventListener('submit', handleDemoLogin);
+document.querySelector('#login-form').addEventListener('submit', handleLogin);
+document.querySelector('#login-role').addEventListener('change', updateLoginRole);
+updateLoginRole();
 
 
-async function startAuthenticatedApp() {
+async function startAuthenticatedApp(role) {
   if (appStarted) return;
   appStarted = true;
   document.body.classList.add('authenticated');
+  if (role === 'player') {
+    document.body.classList.add('player-authenticated');
+    document.querySelector('#player-screen').hidden = false;
+    try {
+      await initializePlayerView();
+    } catch (error) {
+      console.error('Could not load player view:', error);
+      document.querySelector('#player-allocation-status').textContent = 'Could not load player data. Please refresh and try again.';
+    }
+    return;
+  }
   try {
     await initializeSessions();
     await initializeRoster();
@@ -1366,8 +1391,15 @@ function announce() {
 }
 renderCourts(); renderWaiting(); renderRoundTimer();
 renderViews();
-initializeRoster();
 setupSessionDropdowns();
+document.querySelector('#player-session-select').addEventListener('change', () => {
+  rememberSelectedSession(document.querySelector('#player-session-select').value);
+  document.querySelector('#player-courts').innerHTML = '';
+  loadPlayerAllocation().catch(error => {
+    console.error('Could not load court allocation:', error);
+    document.querySelector('#player-allocation-status').textContent = 'Could not load the allocation. Please try again.';
+  });
+});
 document.querySelector('#club-session').addEventListener('change', () => {
   if (manualMode) cancelManualRound();
   document.querySelector('#board-session').value = selectedSession(); rememberSelectedSession(selectedSession());
@@ -1461,6 +1493,67 @@ function initializeSessions() {
   return refreshSessions();
 }
 
+async function initializePlayerView() {
+  const response = await fetch(`${apiBaseUrl}/sessions`);
+  if (!response.ok) throw new Error(`Could not load sessions: ${response.status}`);
+  clubSessions = (await response.json()).map(normaliseSession).filter(session => session.active);
+  const select = document.querySelector('#player-session-select');
+  document.querySelector('#player-courts').innerHTML = '';
+  select.replaceChildren(...clubSessions.map(session => {
+    const option = document.createElement('option');
+    option.value = session.id;
+    option.textContent = `${optionShortLine(session)} — ${venueShortName(session.location)}`;
+    return option;
+  }));
+  if (!clubSessions.length) {
+    document.querySelector('#player-allocation-status').textContent = 'No sessions are currently scheduled.';
+    return;
+  }
+  let savedSession = '';
+  try { savedSession = localStorage.getItem(SELECTED_SESSION_KEY) || ''; } catch { /* Storage unavailable. */ }
+  select.value = clubSessions.some(session => session.id === savedSession) ? savedSession : clubSessions[0].id;
+  await loadPlayerAllocation();
+  playerRefreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible' && document.body.classList.contains('player-authenticated')) {
+      loadPlayerAllocation().catch(error => {
+        console.error('Could not refresh court allocation:', error);
+        document.querySelector('#player-allocation-status').textContent = 'Could not refresh the allocation. Retrying shortly.';
+      });
+    }
+  }, 15000);
+}
+
+async function loadPlayerAllocation() {
+  const sessionId = document.querySelector('#player-session-select').value;
+  const status = document.querySelector('#player-allocation-status');
+  const courtsElement = document.querySelector('#player-courts');
+  if (!sessionId) {
+    courtsElement.innerHTML = '';
+    return;
+  }
+  status.textContent = 'Loading court allocation…';
+  const response = await fetch(`${apiBaseUrl}/sessions/${encodeURIComponent(sessionId)}/player-allocation`);
+  if (response.status === 401) {
+    if (playerRefreshTimer) window.clearInterval(playerRefreshTimer);
+    playerRefreshTimer = null;
+    appStarted = false;
+    showLogin('Your sign-in has expired. Please sign in again.');
+    return;
+  }
+  if (!response.ok) throw new Error(`Could not load court allocation: ${response.status}`);
+  const allocation = await response.json();
+  const courts = allocation.courts || [];
+  status.textContent = courts.length
+    ? `Current allocation · Round ${allocation.roundNumber}`
+    : 'No courts have been allocated for this session yet.';
+  courtsElement.innerHTML = courts.map(court => `
+    <article class="court player-court" style="--court-color:${colourForFormat(court.format)}">
+      <div class="court-number"><strong>COURT ${escapeHtml(court.courtNumber)}</strong><span>4 / 4</span></div>
+      <ul>${court.players.map(player => `<li class="${player.team === 'A' ? 'team-a' : 'team-b'}">${escapeHtml(player.name)}</li>`).join('')}</ul>
+      <p class="format">${escapeHtml(formatLabels[court.format] || court.format)}</p>
+    </article>`).join('');
+}
+
 async function initializeLatestRound() {
   const response = await fetch(`${apiBaseUrl}/sessions/${selectedSession()}/rounds/latest`);
   if (!response.ok) throw new Error(`Could not load latest round: ${response.status}`);
@@ -1474,11 +1567,38 @@ document.querySelector('#announce-button').addEventListener('click', announce);
 document.querySelector('#timer-toggle').addEventListener('click', toggleRoundTimer);
 document.querySelector('#timer-reset').addEventListener('click', resetRoundTimer);
 document.querySelector('#timer-minutes').addEventListener('change', changeRoundDuration);
-document.querySelectorAll('[data-logout]').forEach(button => button.addEventListener('click', () => {
-  try { sessionStorage.removeItem(SESSION_KEY); } catch { /* session-only demo auth */ }
+
+async function handleLogout() {
+  try {
+    const response = await fetch(`${apiBaseUrl}/auth/logout`, { method: 'POST' });
+    if (!response.ok) throw new Error(`Logout failed: ${response.status}`);
+  } catch (error) {
+    console.error('Could not log out:', error);
+    window.alert('Could not log out. Check your connection and try again.');
+    return;
+  }
+  if (playerRefreshTimer) window.clearInterval(playerRefreshTimer);
+  playerRefreshTimer = null;
   appStarted = false;
   showLogin();
-}));
+}
+document.querySelectorAll('[data-logout]').forEach(button => button.addEventListener('click', handleLogout));
 
-if (isAuthenticated()) startAuthenticatedApp();
-else showLogin();
+async function restoreAuthentication() {
+  try {
+    const response = await fetch(`${apiBaseUrl}/auth/me`);
+    if (response.status === 401) {
+      showLogin();
+      return;
+    }
+    if (!response.ok) throw new Error(`Could not verify sign-in: ${response.status}`);
+    const result = await response.json();
+    if (result.role !== 'organizer' && result.role !== 'player') throw new Error('Invalid sign-in response');
+    await startAuthenticatedApp(result.role);
+  } catch (error) {
+    console.error('Could not verify sign-in:', error);
+    showLogin('Could not verify your sign-in. Please try again.');
+  }
+}
+
+restoreAuthentication();

@@ -44,6 +44,25 @@ POSTGRES_URL=postgresql://postgres.xxxxx:YOUR-PASSWORD@aws-1-eu-west-1.pooler.su
 
 Tick **Production**, **Preview** and **Development**, then **Save**.
 
+Add the authentication settings as well:
+
+```
+AUTH_SECRET=<random value of at least 32 characters>
+ORGANIZER_PASSWORD=<organiser password of at least 12 characters>
+PLAYER_PASSWORD=<shared read-only player password of at least 12 characters>
+ORGANIZER_USERNAME=organizer
+```
+
+Use a unique, randomly generated `AUTH_SECRET` and strong passwords.
+`ORGANIZER_USERNAME` is optional and defaults to `organizer`. The two passwords
+are used server-side to provision/rotate salted scrypt hashes in PostgreSQL;
+the plaintext passwords are not shipped in frontend code or stored in the
+database. Keep these values only in Vercel Environment Variables or an ignored
+local `.env.local` file. The organiser account can manage the club night; the
+shared player account can select an active session and view court assignments
+only. Deployments that share one database must use the same organiser and
+player passwords, because each account has one database hash.
+
 Accepted alternatives (first one found wins) — handy if you still have the old
 Render values lying around:
 
@@ -188,3 +207,10 @@ request after idle (~300–800 ms), then it is warm. Keeping the pooler URI
 `.env.local` contains the real Supabase password and is gitignored. Never
 commit it. In production the password lives only in Vercel's environment
 variables (encrypted).
+
+Authentication uses an HTTP-only, same-site cookie that expires after 12 hours.
+The API checks account roles for every request, and the player allocation
+endpoint returns court names and teams only (no waiting queue or organiser
+controls). Changing `ORGANIZER_PASSWORD` or `PLAYER_PASSWORD` in the deployment
+environment rotates the corresponding database hash after a cold start; redeploy
+after updating environment variables.
