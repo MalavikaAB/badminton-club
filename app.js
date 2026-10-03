@@ -161,6 +161,7 @@ function sessionGroups(list) {
 
 function fillDivisionSelects() {
   document.querySelector('#player-division').innerHTML = divisions.map(division => `<option value="${division}">${division === 'Open' ? 'Open / social' : `Div ${division}`}</option>`).join('');
+  updateBeginnerControl();
   const club = document.querySelector('#club-session');
   const board = document.querySelector('#board-session');
   const previousClub = club ? club.value : '';
@@ -299,15 +300,19 @@ function renderScheduleNote() {
   renderSessionChips('checkin', session);
 }
 function mapPlayers(players) {
-  return players.map(player => ({
+  return players.map(player => {
+    const profile = roster.find(rosterPlayer => rosterPlayer.id === player.id);
+    return {
     id: player.id,
     name: player.name,
     gender: player.gender,
+    beginner: Boolean(profile?.beginner ?? player.beginner),
     gamesPlayed: player.gamesPlayed,
     roundsWaiting: player.roundsWaiting,
     sittingOut: Boolean(player.sittingOut),
-    division: roster.find(rosterPlayer => rosterPlayer.id === player.id)?.division || '?'
-  }));
+    division: profile?.division || player.division || '?'
+    };
+  });
 }
 
 function applyAllocation(allocation) {
@@ -425,6 +430,8 @@ function beginEditingPlayer(playerId) {
   document.querySelector('#player-name').value = player.name;
   document.querySelector('#player-gender').value = player.gender;
   document.querySelector('#player-division').value = player.division;
+  document.querySelector('#player-beginner').checked = Boolean(player.beginner);
+  updateBeginnerControl();
   const submit = document.querySelector('#player-submit');
   submit.textContent = 'Save changes';
   submit.disabled = false;
@@ -438,11 +445,20 @@ function cancelEditingPlayer() {
   const submit = document.querySelector('#player-submit');
   submit.innerHTML = 'Add player <span>+</span>';
   document.querySelector('#player-edit-cancel').hidden = true;
+  updateBeginnerControl();
+}
+
+function updateBeginnerControl() {
+  const beginner = document.querySelector('#player-beginner');
+  const division = document.querySelector('#player-division');
+  if (!beginner || !division) return;
+  beginner.disabled = division.value !== '10';
+  if (beginner.disabled) beginner.checked = false;
 }
 
 function renderPlayers() {
   document.querySelector('#players-list').innerHTML = roster.length ? roster.map(player => `
-    <div class="directory-row"><span><strong>${player.name}</strong><small>${player.gender === 'MALE' ? 'Male' : 'Female'} · Div ${player.division}</small></span><span class="row-actions"><button type="button" class="edit-button" data-edit-id="${player.id}" title="Edit ${player.name}">Edit</button><button type="button" class="remove-button" data-remove-id="${player.id}" title="Remove ${player.name}">Remove</button></span></div>`).join('') : '<p class="empty-state">No players added yet.</p>';
+    <div class="directory-row"><span><strong>${player.name}</strong><small>${player.gender === 'MALE' ? 'Male' : 'Female'} · Div ${player.division}${player.beginner ? ' · <span class="beginner-badge">Beginner</span>' : ''}</small></span><span class="row-actions"><button type="button" class="edit-button" data-edit-id="${player.id}" title="Edit ${player.name}">Edit</button><button type="button" class="remove-button" data-remove-id="${player.id}" title="Remove ${player.name}">Remove</button></span></div>`).join('') : '<p class="empty-state">No players added yet.</p>';
   document.querySelectorAll('[data-edit-id]').forEach(button => button.addEventListener('click', () => beginEditingPlayer(button.dataset.editId)));
   document.querySelectorAll('[data-remove-id]').forEach(button => button.addEventListener('click', async () => {
     const response = await fetch(`${apiBaseUrl}/players/${button.dataset.removeId}`, { method: 'DELETE' });
@@ -1405,7 +1421,8 @@ document.querySelector('#player-form').addEventListener('submit', async event =>
   const payload = {
     name: document.querySelector('#player-name').value.trim(),
     gender: document.querySelector('#player-gender').value,
-    division: document.querySelector('#player-division').value
+    division: document.querySelector('#player-division').value,
+    beginner: document.querySelector('#player-beginner').checked
   };
   if (editingPlayerId) {
     const response = await fetch(`${apiBaseUrl}/players/${editingPlayerId}`, {
@@ -1431,6 +1448,7 @@ document.querySelector('#player-form').addEventListener('submit', async event =>
   renderCheckins();
 });
 document.querySelector('#player-edit-cancel').addEventListener('click', cancelEditingPlayer);
+document.querySelector('#player-division').addEventListener('change', updateBeginnerControl);
 async function initializeRoster() {
   const response = await fetch(`${apiBaseUrl}/players`);
   if (!response.ok) throw new Error(`Could not load players: ${response.status}`);

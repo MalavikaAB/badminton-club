@@ -11,6 +11,7 @@ export interface Player {
   name: string;
   gender: Gender;
   division: string;
+  beginner?: boolean;
   /** ISO-8601 timestamp of check-in; epoch when unknown. */
   checkedInAt: string;
   gamesPlayed: number;

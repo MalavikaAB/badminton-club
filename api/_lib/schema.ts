@@ -16,12 +16,14 @@ create table if not exists players (
   name text not null,
   gender text not null,
   division text not null default '',
+  beginner boolean not null default false,
   games_played integer not null default 0,
   rounds_waiting integer not null default 0,
   active boolean not null default true
 );
 alter table players add column if not exists rounds_waiting integer not null default 0;
 alter table players add column if not exists active boolean not null default true;
+alter table players add column if not exists beginner boolean not null default false;
 create table if not exists venue_sessions (
   id text primary key,
   weekday text not null,

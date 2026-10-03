@@ -19,7 +19,7 @@ export async function latestRound(
   }
   const roundId = String((latest as any[])[0].id);
   const roundNumber = Number((latest as any[])[0].round_number);
-  const rows = await sql`select rp.court_number, rp.format, rp.team, p.id, p.name, p.gender,
+  const rows = await sql`select rp.court_number, rp.format, rp.team, p.id, p.name, p.gender, p.division, p.beginner,
     p.rounds_waiting, ci.checked_in_at, coalesce(ci.sit_out_rounds, 0) as sit_out_rounds,
     (select count(*) from venue_round_players games join venue_rounds gr on gr.id = games.round_id
     where games.player_id = p.id and gr.night_id = ${nightId}) as games_played
@@ -34,7 +34,8 @@ export async function latestRound(
     const pid = String(r.id);
     assigned.add(pid);
     const at = r.checked_in_at ? new Date(r.checked_in_at).toISOString() : EPOCH;
-    const p: Player = { id: pid, name: r.name, gender: r.gender as Gender, division: '',
+    const p: Player = { id: pid, name: r.name, gender: r.gender as Gender,
+      division: String(r.division ?? ''), beginner: r.beginner === true,
       checkedInAt: at, gamesPlayed: Number(r.games_played ?? 0),
       roundsWaiting: Number(r.rounds_waiting ?? 0),
       sittingOut: Number(r.sit_out_rounds ?? 0) > 0, pairCount: {}, oppCount: {},

@@ -13,6 +13,7 @@ import type {
  */
 const PARTNER_WEIGHT = 2.0;
 const OPPONENT_WEIGHT = 1.0;
+const BEGINNER_HIGHER_DIVISION_PENALTY = 250;
 
 /**
  * Immediate-repeat penalties.
@@ -114,6 +115,15 @@ export function courtCost(
   }
 
   let cost = 0;
+  const players = [...teamA, ...teamB];
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      if ((players[i].beginner && isHigherDivision(players[j].division))
+        || (players[j].beginner && isHigherDivision(players[i].division))) {
+        cost += BEGINNER_HIGHER_DIVISION_PENALTY;
+      }
+    }
+  }
 
   /**
    * Historical partner repeats.
@@ -205,6 +215,11 @@ export function courtCost(
   }
 
   return cost;
+}
+
+function isHigherDivision(division: string): boolean {
+  const number = Number(division);
+  return Number.isInteger(number) && number >= 1 && number <= 9;
 }
 
 export function courtCostOf(

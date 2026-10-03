@@ -153,10 +153,11 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
 async function handlePlayers(req: VercelRequest, res: VercelResponse, method: string): Promise<void> {
   const sql = db();
   if (method === 'GET') {
-    const rows = await sql`select id, name, gender, division, games_played
+    const rows = await sql`select id, name, gender, division, beginner, games_played
       from players where active = true order by name`;
     sendJson(res, 200, (rows as any[]).map((r) => ({
-      id: String(r.id), name: r.name, gender: r.gender, division: r.division, gamesPlayed: Number(r.games_played),
+      id: String(r.id), name: r.name, gender: r.gender, division: r.division,
+      beginner: r.beginner === true, gamesPlayed: Number(r.games_played),
     })));
     return;
   }
@@ -165,13 +166,23 @@ async function handlePlayers(req: VercelRequest, res: VercelResponse, method: st
     const name = String(body?.name ?? '').trim();
     const gender = body?.gender;
     const division = String(body?.division ?? '').trim();
+    const beginner = body?.beginner === true;
     if (!name || (gender !== 'MALE' && gender !== 'FEMALE') || !division) {
       sendError(res, 400, 'Name, gender and division are required');
       return;
     }
+    if (body?.beginner !== undefined && typeof body.beginner !== 'boolean') {
+      sendError(res, 400, 'Beginner must be true or false');
+      return;
+    }
+    if (beginner && division !== '10') {
+      sendError(res, 400, 'Only Division 10 players can be tagged as beginners');
+      return;
+    }
     const id = randomUUID();
-    await sql`insert into players (id, name, gender, division) values (${id}, ${name}, ${gender}, ${division})`;
-    sendJson(res, 200, { id, name, gender, division, gamesPlayed: 0 });
+    await sql`insert into players (id, name, gender, division, beginner)
+      values (${id}, ${name}, ${gender}, ${division}, ${beginner})`;
+    sendJson(res, 200, { id, name, gender, division, beginner, gamesPlayed: 0 });
     return;
   }
   sendJson(res, 405, { message: 'Method not allowed' });
@@ -183,19 +194,32 @@ async function handlePlayerUpdate(req: VercelRequest, res: VercelResponse, playe
   const name = body?.name !== undefined ? String(body.name).trim() : undefined;
   const gender = body?.gender;
   const division = body?.division !== undefined ? String(body.division).trim() : undefined;
+  const beginner = body?.beginner;
   if (name !== undefined && name.length === 0) { sendError(res, 400, 'Name is required'); return; }
   if (gender !== undefined && gender !== 'MALE' && gender !== 'FEMALE') { sendError(res, 400, 'Gender must be MALE or FEMALE'); return; }
   if (division !== undefined && division.length === 0) { sendError(res, 400, 'Division is required'); return; }
+  if (beginner !== undefined && typeof beginner !== 'boolean') { sendError(res, 400, 'Beginner must be true or false'); return; }
+  if (beginner === true) {
+    const current = await sql`select division from players where id = ${playerId} and active = true`;
+    if (!(current as any[]).length) { sendError(res, 404, 'Player not found'); return; }
+    if ((division ?? String((current as any[])[0].division)) !== '10') {
+      sendError(res, 400, 'Only Division 10 players can be tagged as beginners');
+      return;
+    }
+  }
   const updated = await sql`update players set
       name = case when ${name !== undefined} then ${name ?? null} else name end,
       gender = case when ${gender !== undefined} then ${gender ?? null} else gender end,
-      division = case when ${division !== undefined} then ${division ?? null} else division end
+      division = case when ${division !== undefined} then ${division ?? null} else division end,
+      beginner = case when ${beginner !== undefined} then ${beginner ?? false}
+        when ${division !== undefined && division !== '10'} then false else beginner end
     where id = ${playerId} and active = true
-    returning id, name, gender, division, games_played`;
+    returning id, name, gender, division, beginner, games_played`;
   if (!(updated as any[]).length) { sendError(res, 404, 'Player not found'); return; }
   const r = (updated as any[])[0];
   sendJson(res, 200, {
-    id: String(r.id), name: r.name, gender: r.gender, division: r.division, gamesPlayed: Number(r.games_played),
+    id: String(r.id), name: r.name, gender: r.gender, division: r.division,
+    beginner: r.beginner === true, gamesPlayed: Number(r.games_played),
   });
 }
 
@@ -463,6 +487,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
     players = (Array.isArray(body?.players) ? body.players : []).map((p: any) => ({
       id: String(p.id ?? randomUUID()), name: String(p.name ?? ''),
       gender: p.gender as Gender, division: String(p.division ?? ''),
+      beginner: p.beginner === true && String(p.division ?? '') === '10',
       checkedInAt: p.checkedInAt ?? EPOCH, gamesPlayed: Number(p.gamesPlayed ?? 0),
       roundsWaiting: Number(p.roundsWaiting ?? 0),
       sittingOut: p.sittingOut === true, pairCount: {}, oppCount: {},
