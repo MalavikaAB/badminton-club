@@ -42,6 +42,13 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
   const root = segs[0] === 'club-night' ? segs.slice(1) : segs;
 
   try {
+    const isLoginRequest = method === 'POST'
+      && root[0] === 'auth' && root[1] === 'login' && root.length === 2;
+    if (!isLoginRequest && !roleFromRequest(req)) {
+      sendError(res, 401, 'Sign in required');
+      return;
+    }
+
     if (method === 'GET' && root.length === 1 && root[0] === 'health') {
       sendJson(res, 200, { status: 'ready', service: 'club-night-backend' });
       return;

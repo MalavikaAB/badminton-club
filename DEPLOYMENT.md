@@ -83,8 +83,18 @@ SUPABASE_DB_PASSWORD=...
 
 ### Verify
 
-- `https://<your-project>.vercel.app/api/club-night/health` → `{"status":"ready"}`
-- `https://<your-project>.vercel.app/api/club-night/database-health` → `{"status":"connected"}`
+- Sign in through the site, then request
+  `https://<your-project>.vercel.app/api/club-night/health` →
+  `{"status":"ready"}`.
+- Sign in through the site, then request
+  `https://<your-project>.vercel.app/api/club-night/database-health` →
+  `{"status":"connected"}`.
+
+Except for `POST /api/club-night/auth/login` (which must remain available so
+users can sign in), API routes require a valid signed session cookie. The
+`AUTH_SECRET` stays server-side and is used to sign and verify that cookie; do
+not send it from the browser. CORS `OPTIONS` preflight requests are also
+handled without a session and do not expose API data.
 
 ---
 
