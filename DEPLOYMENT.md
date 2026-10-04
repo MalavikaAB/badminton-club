@@ -221,6 +221,7 @@ variables (encrypted).
 Authentication uses an HTTP-only, same-site cookie that expires after 12 hours.
 The API checks account roles for every request, and the player allocation
 endpoint returns court names and teams only (no waiting queue or organiser
-controls). Changing `ORGANIZER_PASSWORD` or `PLAYER_PASSWORD` in the deployment
+controls). The opponent matrix and per-player game totals are available only to
+organisers. Changing `ORGANIZER_PASSWORD` or `PLAYER_PASSWORD` in the deployment
 environment rotates the corresponding database hash after a cold start; redeploy
 after updating environment variables.

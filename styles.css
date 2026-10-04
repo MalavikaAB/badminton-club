@@ -51,7 +51,8 @@ body { margin:0; color:var(--ink); background:radial-gradient(circle at 90% 0%, 
 body[data-tab="board-view"] .topbar { display:flex; align-items:center; justify-content:space-between; gap:32px; }
 body[data-tab="checkin-view"] .topbar,
 body[data-tab="players-view"] .topbar { display:none; }
-body[data-tab="venues-view"] .topbar { display:none; }
+body[data-tab="venues-view"] .topbar,
+body[data-tab="statistics-view"] .topbar { display:none; }
 .eyebrow,.label { color:var(--green); font:500 11px 'DM Mono',monospace; letter-spacing:1.5px; margin:0 0 9px; }
 h1,h2,p { margin:0; } h1 { font-size:clamp(34px,5vw,64px); letter-spacing:-2px; line-height:.98; } h2 { font-size:25px; letter-spacing:-.7px; }
 .topbar h1 { font-size:clamp(26px,3vw,38px); letter-spacing:-1.2px; line-height:1.05; }
@@ -150,6 +151,28 @@ select { appearance:none; padding-right:38px; background-image:linear-gradient(4
 .checkin-toolbar strong { font-size:18px; }
 .player-list { max-width:760px; }
 .directory-list { max-width:920px; }
+.statistics-toolbar { display:flex; align-items:end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
+.statistics-session-picker { min-width:min(100%,320px); text-transform:none; }
+.statistics-session-picker select { width:100%; }
+.statistics-session-picker + .secondary-button { min-height:42px; }
+.statistics-summary { color:var(--muted); font:12px 'DM Mono',monospace; margin:0 0 14px; }
+.statistics-matrix { max-width:100%; }
+.statistics-table-scroll { max-width:100%; overflow:auto; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+.statistics-table { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; font:12px 'DM Mono',monospace; }
+.statistics-table th,.statistics-table td { min-width:74px; padding:10px 12px; border-right:1px solid var(--line); border-bottom:1px solid var(--line); text-align:center; }
+.statistics-table thead th { position:sticky; top:0; z-index:1; background:#f2f5e9; }
+.statistics-table th:first-child { position:sticky; left:0; z-index:2; width:190px; min-width:190px; max-width:190px; text-align:left; background:var(--panel); }
+.statistics-table thead th:first-child { z-index:3; background:#f2f5e9; }
+.statistics-table th:nth-child(2),.statistics-table td:nth-child(2) { position:sticky; left:190px; z-index:1; min-width:66px; background:#fbfaf4; }
+.statistics-table thead th:nth-child(2) { z-index:2; background:#f2f5e9; }
+.statistics-table th span,.statistics-table th small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.statistics-table th small { color:var(--muted); font:10px 'DM Mono',monospace; margin-top:3px; }
+.statistics-table tbody th { font:600 12px 'Space Grotesk',sans-serif; }
+.statistics-table .statistics-games { font-weight:600; }
+.statistics-table .statistics-met { color:var(--green); background:#eef5d8; font-weight:600; }
+.statistics-table .statistics-diagonal { color:#9aa49d; background:#f2f1eb; }
+.statistics-table tr:last-child th,.statistics-table tr:last-child td { border-bottom:0; }
+.statistics-table th:last-child,.statistics-table td:last-child { border-right:0; }
 #players-view .player-form { width:fit-content; padding:18px; margin-top:8px; border:1px solid var(--line); border-radius:14px; background:rgba(255,253,247,.7); box-shadow:0 14px 30px -28px rgba(24,34,30,.7); }
 .venues-list { display:flex; flex-direction:column; gap:14px; max-width:860px; }
 .venue-card { background:var(--panel); border:1px solid var(--line); padding:18px 20px; display:flex; flex-direction:column; gap:12px; }

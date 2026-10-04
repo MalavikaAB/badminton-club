@@ -96,6 +96,7 @@ let manualMode = false;
 let manualCandidates = [];
 let manualCourts = [];
 let selectedManualPlayerId = null;
+let statisticsRequest = 0;
 
 const formatLabels = {
   MENS_DOUBLES: "Men's doubles",
@@ -189,16 +190,19 @@ function fillDivisionSelects() {
   updateBeginnerControl();
   const club = document.querySelector('#club-session');
   const board = document.querySelector('#board-session');
+  const statistics = document.querySelector('#statistics-session-select');
   const previousClub = club ? club.value : '';
   const previousBoard = board ? board.value : ''; let savedSession = ''; try { savedSession = localStorage.getItem(SELECTED_SESSION_KEY) || ''; } catch { /* Storage unavailable. */ }
   const grouped = sessionGroups(clubSessions);
   document.querySelector('#club-session').innerHTML = grouped;
   document.querySelector('#board-session').innerHTML = grouped;
+  if (statistics) statistics.innerHTML = grouped;
   renderSessionMenus();
   updateSessionTriggers();
   const firstId = clubSessions[0] ? clubSessions[0].id : '';
   if (club) club.value = clubSessions.some(item => item.id === previousClub) ? previousClub : (clubSessions.some(item => item.id === savedSession) ? savedSession : firstId);
   if (board) board.value = clubSessions.some(item => item.id === (previousBoard || previousClub)) ? (previousBoard || previousClub) : (club ? club.value : firstId);
+  if (statistics) statistics.value = club?.value || firstId;
   updateSessionTriggers();
 }
 
@@ -273,13 +277,17 @@ function closeSessionMenus(except) {
 function selectSession(sessionId) {
   const board = document.querySelector('#board-session');
   const club = document.querySelector('#club-session');
+  const statistics = document.querySelector('#statistics-session-select');
   if (board) board.value = sessionId;
-  if (club) club.value = sessionId; rememberSelectedSession(sessionId);
+  if (club) club.value = sessionId;
+  if (statistics) statistics.value = sessionId;
+  rememberSelectedSession(sessionId);
   closeSessionMenus();
   updateSessionTriggers();
   renderScheduleNote();
   renderCheckins();
   initializeLatestRound();
+  if (document.body.dataset.tab === 'statistics-view') loadStatistics();
 }
 
 function setupSessionDropdowns() {
@@ -505,8 +513,74 @@ function renderViews() {
     setActiveView(tab.dataset.view);
     if (tab.dataset.view === 'checkin-view') renderCheckins();
     if (tab.dataset.view === 'players-view') renderPlayers();
+    if (tab.dataset.view === 'statistics-view') loadStatistics();
     if (tab.dataset.view === 'venues-view') renderVenues();
   }));
+}
+
+async function loadStatistics() {
+  const requestId = ++statisticsRequest;
+  const sessionId = selectedSession();
+  const matrix = document.querySelector('#statistics-matrix');
+  const summary = document.querySelector('#statistics-summary');
+  const error = document.querySelector('#statistics-error');
+  const session = clubSessions.find(item => item.id === sessionId);
+  document.querySelector('#statistics-session').textContent = session
+    ? `${sessionLabel(session)} · Current night`
+    : '';
+  error.hidden = true;
+
+  if (!sessionId) {
+    matrix.innerHTML = '<p class="empty-state">Choose a session to view its statistics.</p>';
+    summary.textContent = '';
+    return;
+  }
+
+  matrix.innerHTML = '<p class="empty-state">Loading statistics…</p>';
+  try {
+    const response = await fetch(`${apiBaseUrl}/sessions/${encodeURIComponent(sessionId)}/statistics`);
+    if (!response.ok) throw new Error(await readErrorMessage(response));
+    const statistics = await response.json();
+    if (requestId !== statisticsRequest) return;
+
+    const players = Array.isArray(statistics.players) ? statistics.players : [];
+    summary.textContent = `${statistics.roundsPlayed} ${statistics.roundsPlayed === 1 ? 'round' : 'rounds'} · ${players.length} ${players.length === 1 ? 'player' : 'players'}`;
+    if (!players.length) {
+      matrix.innerHTML = '<p class="empty-state">No games have been played in this session tonight yet.</p>';
+      return;
+    }
+
+    const columns = players.map(player => `
+      <th scope="col" title="${escapeHtml(player.name)} · Div ${escapeHtml(player.division)}">
+        <span>${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)}</small>
+      </th>`).join('');
+    const rows = players.map(player => `
+      <tr>
+        <th scope="row"><span>${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)}</small></th>
+        <td class="statistics-games">${Number(player.gamesPlayed) || 0}</td>
+        ${players.map(opponent => {
+          if (player.id === opponent.id) return '<td class="statistics-diagonal" aria-label="Same player">—</td>';
+          const count = Number(player.opponents?.[opponent.id]) || 0;
+          return `<td${count ? ' class="statistics-met"' : ''}>${count}</td>`;
+        }).join('')}
+      </tr>`).join('');
+
+    matrix.innerHTML = `
+      <div class="statistics-table-scroll" role="region" aria-label="Opponent matrix; scroll horizontally to see all players" tabindex="0">
+        <table class="statistics-table">
+          <caption class="visually-hidden">Number of games each player has played against each other player. The games column shows total games played.</caption>
+          <thead><tr><th scope="col">Player</th><th scope="col" class="statistics-games">Games</th>${columns}</tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  } catch (loadError) {
+    if (requestId !== statisticsRequest) return;
+    console.error('Could not load session statistics:', loadError);
+    matrix.innerHTML = '';
+    summary.textContent = '';
+    error.textContent = loadError.message || 'Could not load statistics. Please try again.';
+    error.hidden = false;
+  }
 }
 
 function showVenuesError(message) {
@@ -1425,24 +1499,35 @@ document.querySelector('#player-session-select').addEventListener('change', () =
 document.querySelector('#club-session').addEventListener('change', () => {
   if (manualMode) cancelManualRound();
   document.querySelector('#board-session').value = selectedSession(); rememberSelectedSession(selectedSession());
+  document.querySelector('#statistics-session-select').value = selectedSession();
   renderScheduleNote();
   renderCheckins();
   initializeLatestRound();
+  if (document.body.dataset.tab === 'statistics-view') loadStatistics();
 });
 document.querySelector('#board-session').addEventListener('change', event => {
   if (manualMode) cancelManualRound();
   document.querySelector('#club-session').value = event.target.value; rememberSelectedSession(event.target.value);
+  document.querySelector('#statistics-session-select').value = event.target.value;
   renderScheduleNote();
   renderCheckins();
   initializeLatestRound();
+  if (document.body.dataset.tab === 'statistics-view') loadStatistics();
 });
+document.querySelector('#statistics-session-select').addEventListener('change', event => {
+  selectSession(event.target.value);
+});
+document.querySelector('#statistics-refresh').addEventListener('click', () => loadStatistics());
 document.querySelector('#clear-checkins').addEventListener('click', endClubNight);
 document.querySelector('#end-night-button').addEventListener('click', endClubNight);
 // Another device may have generated a round while this tab sat in the
 // background, which leaves the court cards pointing at players who have since
 // left the court, so re-read the latest round on the way back.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && clubSessions.length) initializeLatestRound().catch(() => {});
+  if (document.visibilityState === 'visible' && clubSessions.length) {
+    initializeLatestRound().catch(() => {});
+    if (document.body.dataset.tab === 'statistics-view') loadStatistics();
+  }
 });
 document.querySelector('#swap-cancel').addEventListener('click', closeSwapModal);
 document.querySelector('#swap-modal').addEventListener('click', event => {

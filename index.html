@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Club Night Board</title>
-  <link rel="stylesheet" href="styles.css?v=20261003-server-auth">
+  <link rel="stylesheet" href="styles.css?v=20261004-opponent-matrix">
 </head>
 <body data-tab="board-view">
   <div id="auth-screen" class="auth-screen">
@@ -48,6 +48,7 @@
       <button class="tab active" data-view="board-view">Board</button>
       <button class="tab" data-view="checkin-view">Check in</button>
       <button class="tab" data-view="players-view">Players</button>
+      <button class="tab" data-view="statistics-view">Statistics</button>
       <button class="tab" data-view="venues-view">Venues</button>
       <button type="button" class="secondary-button nav-logout" data-logout>Log out</button>
     </nav>
@@ -177,6 +178,24 @@
       </form>
       <div id="venues-list" class="directory-list venues-list"></div>
     </section>
+
+    <section id="statistics-view" class="view">
+      <div class="page-heading">
+        <p class="eyebrow">CLUB NIGHT STATISTICS</p>
+        <h2>Opponent matrix</h2>
+        <p class="muted">See how many games each player has played against every other player this night.</p>
+      </div>
+      <div class="statistics-toolbar">
+        <label class="statistics-session-picker" for="statistics-session-select">Session
+          <select id="statistics-session-select" aria-label="Statistics session"></select>
+        </label>
+        <button class="secondary-button" id="statistics-refresh" type="button">Refresh statistics</button>
+      </div>
+      <p id="statistics-session" class="schedule-note"></p>
+      <p id="statistics-summary" class="statistics-summary" role="status"></p>
+      <p id="statistics-error" class="login-error" role="alert" hidden></p>
+      <div id="statistics-matrix" class="statistics-matrix"></div>
+    </section>
   </main>
   <div id="swap-modal" class="modal hidden" role="dialog" aria-labelledby="swap-title">
     <div class="modal-card">
@@ -187,6 +206,6 @@
       <button class="secondary-button" id="swap-cancel">Cancel</button>
     </div>
   </div>
-  <script src="app.js?v=20261004-no-open-doubles"></script>
+  <script src="app.js?v=20261004-opponent-matrix"></script>
 </body>
 </html>

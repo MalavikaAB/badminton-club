@@ -200,6 +200,10 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
         await handlePlayerAllocation(res, sessionId);
         return;
       }
+      if (method === 'GET' && root[2] === 'statistics' && root.length === 3) {
+        await handleSessionStatistics(res, sessionId);
+        return;
+      }
       if (method === 'POST' && root[2] === 'swap' && root.length === 3) {
         await handleSwap(req, res, sessionId);
         return;
@@ -419,6 +423,7 @@ async function handlePlayerAllocation(res: VercelResponse, sessionId: string): P
     sendError(res, 404, 'Session not found');
     return;
   }
+
   await resetStaleNight(sessionId);
   const nightId = await openNightId(sessionId);
   const allocation = await latestRound(sessionId, nightId);
@@ -431,6 +436,74 @@ async function handlePlayerAllocation(res: VercelResponse, sessionId: string): P
         name: player.name,
         team: court.teamA.some((member) => member.id === player.id) ? 'A' : 'B',
       })),
+    })),
+  });
+}
+
+async function handleSessionStatistics(res: VercelResponse, sessionId: string): Promise<void> {
+  const sql = db();
+  const activeSession = await sql`select 1 from venue_sessions where id = ${sessionId} and active = true`;
+  if (!(activeSession as any[]).length) {
+    sendError(res, 404, 'Session not found');
+    return;
+  }
+
+  await resetStaleNight(sessionId);
+  const nightId = await openNightId(sessionId);
+  if (!nightId) {
+    sendJson(res, 200, { nightId: null, roundsPlayed: 0, players: [] });
+    return;
+  }
+
+  const [roundRows, playerRows, opponentRows] = await Promise.all([
+    sql`select count(*)::int as rounds_played from venue_rounds where night_id = ${nightId}`,
+    sql`select p.id, p.name, p.gender, p.division, count(rp.player_id)::int as games_played
+      from players p
+      left join venue_round_players rp
+        on rp.player_id = p.id
+        and rp.court_number is not null
+        and rp.round_id in (select id from venue_rounds where night_id = ${nightId})
+      where p.id in (
+        select player_id from venue_check_ins where session_id = ${sessionId}
+      ) or p.id in (
+        select rp.player_id from venue_round_players rp
+        join venue_rounds r on r.id = rp.round_id
+        where r.night_id = ${nightId} and rp.court_number is not null
+      )
+      group by p.id, p.name, p.gender, p.division
+      order by p.name, p.id`,
+    sql`select a.player_id, b.player_id as opponent_id, count(*)::int as games_together
+      from venue_round_players a
+      join venue_round_players b
+        on b.round_id = a.round_id
+        and b.court_number = a.court_number
+        and b.team <> a.team
+      join venue_rounds r on r.id = a.round_id
+      where r.night_id = ${nightId}
+        and a.court_number is not null
+        and a.team in ('A', 'B')
+      group by a.player_id, b.player_id`,
+  ]);
+
+  const opponentsByPlayer = new Map<string, Record<string, number>>();
+  for (const row of opponentRows as any[]) {
+    const playerId = String(row.player_id);
+    const opponentId = String(row.opponent_id);
+    const opponents = opponentsByPlayer.get(playerId) ?? {};
+    opponents[opponentId] = Number(row.games_together);
+    opponentsByPlayer.set(playerId, opponents);
+  }
+
+  sendJson(res, 200, {
+    nightId,
+    roundsPlayed: Number((roundRows as any[])[0]?.rounds_played ?? 0),
+    players: (playerRows as any[]).map((row) => ({
+      id: String(row.id),
+      name: row.name,
+      gender: row.gender,
+      division: row.division,
+      gamesPlayed: Number(row.games_played),
+      opponents: opponentsByPlayer.get(String(row.id)) ?? {},
     })),
   });
 }
@@ -593,6 +666,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
     .filter((f): f is NonNullable<typeof f> => f !== null);
   if (sessionId) await resetStaleNight(sessionId);
   const nightId = sessionId ? await ensureOpenNight(sessionId) : null;
+  if (nightId) await syncPairCounts(nightId);
   let next = roundNumber;
   let players: Player[] = [];
   let maxCourts: number | undefined;
