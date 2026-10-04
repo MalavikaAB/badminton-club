@@ -34,7 +34,50 @@ export const LAST_OPPONENT_PENALTY = 100;
 export interface Split {
   teamA: Player[];
   teamB: Player[];
+  repeatCount: number;
   cost: number;
+}
+
+/**
+ * Count previously used partner/opponent relationships in this split.
+ * This is the primary pairing objective; historical repeat frequency and
+ * other preferences are tie-breakers once the number of repeats is minimized.
+ */
+export function repeatCountOf(
+  teamA: Player[],
+  teamB: Player[],
+): number {
+  let repeats = 0;
+
+  if (
+    pairWith(teamA[0], teamA[1].id) > 0 ||
+    partneredLastRound(teamA[0], teamA[1])
+  ) {
+    repeats++;
+  }
+
+  if (
+    pairWith(teamB[0], teamB[1].id) > 0 ||
+    partneredLastRound(teamB[0], teamB[1])
+  ) {
+    repeats++;
+  }
+
+  for (const [a, b] of [
+    [teamA[0], teamB[0]],
+    [teamA[0], teamB[1]],
+    [teamA[1], teamB[0]],
+    [teamA[1], teamB[1]],
+  ]) {
+    if (
+      oppWith(a, b.id) > 0 ||
+      opposedLastRound(a, b)
+    ) {
+      repeats++;
+    }
+  }
+
+  return repeats;
 }
 
 /**
@@ -78,6 +121,12 @@ export function partneredLastRound(
     a.lastPartner === b.id ||
     b.lastPartner === a.id
   );
+}
+
+export function courtRepeatCountOf(
+  court: CourtAssignment,
+): number {
+  return repeatCountOf(court.teamA, court.teamB);
 }
 
 /**
@@ -248,12 +297,10 @@ export function splitLegalForFormat(
     return false;
   }
 
-  if (
-    !format ||
-    format === 'OPEN_DOUBLES'
-  ) {
+  if (!format) {
     return true;
   }
+  if (format === 'OPEN_DOUBLES') return false;
 
   const players = [
     ...teamA,
@@ -337,10 +384,12 @@ export function bestSplit(
     return {
       teamA: [],
       teamB: [],
+      repeatCount: Infinity,
       cost: Infinity,
     };
   }
 
+  let bestRepeatCount = Infinity;
   let bestCost = Infinity;
 
   let bestA: Player[] = [];
@@ -374,10 +423,13 @@ export function bestSplit(
         teamA,
         teamB,
       );
+    const repeatCount = repeatCountOf(teamA, teamB);
 
     if (
-      cost < bestCost
+      repeatCount < bestRepeatCount ||
+      (repeatCount === bestRepeatCount && cost < bestCost)
     ) {
+      bestRepeatCount = repeatCount;
       bestCost = cost;
       bestA = teamA;
       bestB = teamB;
@@ -387,6 +439,7 @@ export function bestSplit(
   return {
     teamA: bestA,
     teamB: bestB,
+    repeatCount: bestRepeatCount,
     cost: bestCost,
   };
 }
@@ -402,12 +455,6 @@ export function validForFormat(
     players.length !== 4
   ) {
     return false;
-  }
-
-  if (
-    format === 'OPEN_DOUBLES'
-  ) {
-    return true;
   }
 
   if (
@@ -572,9 +619,16 @@ export function localSearch(
             const newCost =
               splitA.cost +
               splitB.cost;
+            const oldRepeatCount =
+              repeatCountOf(courtA.teamA, courtA.teamB) +
+              repeatCountOf(courtB.teamA, courtB.teamB);
+            const newRepeatCount =
+              splitA.repeatCount +
+              splitB.repeatCount;
 
             if (
-              newCost >= oldCost
+              newRepeatCount > oldRepeatCount ||
+              (newRepeatCount === oldRepeatCount && newCost >= oldCost)
             ) {
               continue;
             }
@@ -682,6 +736,7 @@ export function buildCourtFromPool(
     | Player[]
     | null = null;
 
+  let bestRepeatCount = Infinity;
   let bestCost = Infinity;
 
   for (
@@ -735,9 +790,11 @@ export function buildCourtFromPool(
           }
 
           if (
-            split.cost <
-            bestCost
+            split.repeatCount < bestRepeatCount ||
+            (split.repeatCount === bestRepeatCount && split.cost < bestCost)
           ) {
+            bestRepeatCount =
+              split.repeatCount;
             bestCost =
               split.cost;
 
@@ -811,6 +868,7 @@ export function buildMixedCourt(
     | Player[]
     | null = null;
 
+  let bestRepeatCount = Infinity;
   let bestCost = Infinity;
 
   for (
@@ -855,9 +913,11 @@ export function buildMixedCourt(
           }
 
           if (
-            split.cost <
-            bestCost
+            split.repeatCount < bestRepeatCount ||
+            (split.repeatCount === bestRepeatCount && split.cost < bestCost)
           ) {
+            bestRepeatCount =
+              split.repeatCount;
             bestCost =
               split.cost;
 
@@ -918,18 +978,8 @@ export function buildCourt(
   men: Player[],
   women: Player[],
 ): CourtAssignment {
-  if (
-    format === 'OPEN_DOUBLES'
-  ) {
-    return buildCourtFromPool(
-      format,
-      [
-        ...men,
-        ...women,
-      ],
-      men,
-      women,
-    );
+  if (format === 'OPEN_DOUBLES') {
+    throw new Error('Open doubles is not a supported court format');
   }
 
   if (

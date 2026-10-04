@@ -8,6 +8,7 @@ import {
   bestSplit,
   buildCourt as buildCourt2,
   courtCostOf,
+  courtRepeatCountOf,
   localSearch,
   replacePlayer,
   validForFormat,
@@ -25,8 +26,7 @@ import {
  *   'MENS_DOUBLES',
  *   'WOMENS_DOUBLES',
  *   'MIXED_DOUBLES',
- *   'MIXED_DOUBLES',
- *   'OPEN_DOUBLES'
+ *   'MIXED_DOUBLES'
  * ]
  *
  * The old implementation ignored the actual values in this array
@@ -169,9 +169,6 @@ export function canFieldFormat(
     case 'MIXED_DOUBLES':
       return men >= 2 && women >= 2;
 
-    case 'OPEN_DOUBLES':
-      return men + women >= 4;
-
     default:
       return false;
   }
@@ -187,7 +184,6 @@ export function canFieldFormat(
  * 2. men's doubles
  * 3. women's doubles
  * 4. mixed doubles
- * 5. open doubles
  */
 function findFallbackFormat(
   requested: GameFormat,
@@ -208,7 +204,6 @@ function findFallbackFormat(
     'MENS_DOUBLES',
     'WOMENS_DOUBLES',
     'MIXED_DOUBLES',
-    'OPEN_DOUBLES',
   ];
 
   for (const format of candidates) {
@@ -405,9 +400,16 @@ export function balanceDivisionsAcrossCourts(
             const afterCost =
               splitI.cost +
               splitJ.cost;
+            const beforeRepeatCount =
+              courtRepeatCountOf(ci) +
+              courtRepeatCountOf(cj);
+            const afterRepeatCount =
+              splitI.repeatCount +
+              splitJ.repeatCount;
 
             if (
-              afterCost > beforeCost
+              afterRepeatCount > beforeRepeatCount ||
+              (afterRepeatCount === beforeRepeatCount && afterCost > beforeCost)
             ) {
               continue;
             }
@@ -450,12 +452,8 @@ export function balanceDivisionsAcrossCourts(
 }
 
 /**
- * Dynamic format selection used only when no explicit format
- * template was supplied or when a requested format cannot be
- * fielded.
- *
- * Same general behaviour as before, but with the unreachable
- * branch removed.
+ * Dynamic format selection used when no explicit template can be
+ * fielded. Returns null when no legal doubles format is possible.
  */
 export function nextFormat(
   men: number,
@@ -491,7 +489,7 @@ export function nextFormat(
     return 'WOMENS_DOUBLES';
   }
 
-  return 'OPEN_DOUBLES';
+  return null;
 }
 
 /**

@@ -590,15 +590,32 @@ async function setVenueActive(sessionId, active) {
 }
 
 const manualFormats = [
-  ['OPEN_DOUBLES', 'Open doubles'],
   ['MENS_DOUBLES', "Men's doubles"],
   ['WOMENS_DOUBLES', "Women's doubles"],
   ['MIXED_DOUBLES', 'Mixed doubles']
 ];
 
+function manualFormatPlan(players, maxCourts) {
+  const men = players.filter(player => player.gender === 'MALE').length;
+  const women = players.length - men;
+  let bestPlan = [];
+
+  for (let mixed = 0; mixed <= Math.min(Math.floor(men / 2), Math.floor(women / 2), maxCourts); mixed++) {
+    const mens = Math.floor((men - mixed * 2) / 4);
+    const womens = Math.floor((women - mixed * 2) / 4);
+    const plan = [
+      ...Array(mens).fill('MENS_DOUBLES'),
+      ...Array(womens).fill('WOMENS_DOUBLES'),
+      ...Array(mixed).fill('MIXED_DOUBLES')
+    ];
+    if (plan.length > bestPlan.length) bestPlan = plan;
+  }
+
+  return bestPlan.slice(0, maxCourts);
+}
+
 function manualFormatIsValid(format, teamA, teamB) {
   const players = [...teamA, ...teamB];
-  if (format === 'OPEN_DOUBLES') return true;
   if (format === 'MENS_DOUBLES') return players.every(player => player.gender === 'MALE');
   if (format === 'WOMENS_DOUBLES') return players.every(player => player.gender === 'FEMALE');
   const isMixed = team => team.filter(player => player.gender === 'MALE').length === 1
@@ -751,10 +768,16 @@ async function startManualRound() {
     return;
   }
   const session = clubSessions.find(item => item.id === selectedSession());
-  const courtCount = Math.min(session?.courts ?? 0, Math.floor(manualCandidates.length / 4));
-  manualCourts = Array.from({ length: courtCount }, (_, index) => ({
+  const maxCourts = Math.min(session?.courts ?? 0, Math.floor(manualCandidates.length / 4));
+  const formats = manualFormatPlan(manualCandidates, maxCourts);
+  if (!formats.length) {
+    window.alert('There are not enough players for a men’s, women’s, or mixed doubles court yet. Everyone will keep their place in the waiting queue.');
+    updateGenerateButton();
+    return;
+  }
+  manualCourts = formats.map((format, index) => ({
     court: index + 1,
-    format: 'OPEN_DOUBLES',
+    format,
     slots: [null, null, null, null]
   }));
   manualMode = true;
@@ -1122,11 +1145,10 @@ function changeRoundDuration() {
   renderRoundTimer();
 }
 
-// Mirrors the API rule in api/_lib/scheduler.ts canSwapFormat: open doubles
-// takes anyone, the gender-specific formats need a replacement of the same
-// gender or the court stops being a legal men's/women's/mixed line-up.
+// Mirrors the API rule in api/_lib/scheduler.ts canSwapFormat: replacements
+// must preserve the court's gender-specific format.
 function canReplaceIn(formatKey, outgoingGender, incomingGender) {
-  return formatKey === 'OPEN_DOUBLES' || outgoingGender === incomingGender;
+  return formatKey !== 'OPEN_DOUBLES' && outgoingGender === incomingGender;
 }
 
 function canKeepDivision(outgoingCourt, outgoing, incoming, incomingCourt = null) {

@@ -10,19 +10,14 @@ import {
   buildAllCourts,
 } from './pairing.js';
 
-import { courtCostOf } from './pairing2.js';
+import { courtCostOf, courtRepeatCountOf } from './pairing2.js';
 
 const DEFAULT_COURTS = 6;
 
 /**
- * Number of extra players considered when selecting the best group.
- *
- * Example:
- *  - 4 courts = 16 required players
- *  - candidate pool = 24 players
- *
- * This means the scheduler can choose someone slightly lower in the
- * waiting queue if doing so produces a substantially better round.
+ * Number of extra players per court considered for pairing improvements.
+ * Players outside this window are considered only when needed to make
+ * the selected lineup field the maximum number of legal courts.
  */
 const EXTRA_CANDIDATES_PER_COURT = 2;
 
@@ -67,7 +62,7 @@ export function generateRound(
   // When the session defines its court count (maxCourts), the session
   // configuration is authoritative — a stale or shorter courtFormats
   // list must not silently shrink the round below the venue's courts.
-  const courtCount =
+  const requestedCourtCount =
     maxCourts && maxCourts > 0
       ? Math.min(
           maxCourts,
@@ -79,6 +74,12 @@ export function generateRound(
           Math.floor(active.length / 4),
         );
 
+  const ordered = [...active].sort(comparePriority);
+  const courtCount = Math.min(
+    requestedCourtCount,
+    legalCourtCapacity(active, separateDivisions),
+  );
+
   if (courtCount === 0) {
     return {
       roundNumber,
@@ -86,8 +87,6 @@ export function generateRound(
       waiting: [...checkedInPlayers].sort(comparePriority),
     };
   }
-
-  const ordered = [...active].sort(comparePriority);
 
   if (separateDivisions) {
     return generateSeparatedRound(
@@ -112,11 +111,13 @@ export function generateRound(
     requiredPlayers + courtCount * EXTRA_CANDIDATES_PER_COURT,
   );
 
-  const candidates = ordered.slice(0, candidateCount);
+  const candidates = ordered;
+  const optimizationCandidates = ordered.slice(0, candidateCount);
 
   const selected = selectBestPlayers(
     candidates,
     requiredPlayers,
+    optimizationCandidates,
   );
 
   /**
@@ -167,12 +168,56 @@ export function generateRound(
 function selectBestPlayers(
   candidates: Player[],
   requiredPlayers: number,
+  optimizationCandidates: Player[] = candidates,
 ): Player[] {
   if (candidates.length <= requiredPlayers) {
     return [...candidates];
   }
 
   let selected = [...candidates.slice(0, requiredPlayers)];
+
+  if (!canFieldCourtCount(selected, requiredPlayers / 4)) {
+    let bestSwap: {
+      outgoingIndex: number;
+      incoming: Player;
+      rankCost: number;
+      score: number;
+    } | null = null;
+
+    const candidateRanks = new Map(
+      candidates.map((player, index) => [player.id, index]),
+    );
+    const waiting = candidates.slice(requiredPlayers);
+
+    for (let i = 0; i < selected.length; i++) {
+      const outgoing = selected[i];
+      const outgoingRank = candidateRanks.get(outgoing.id) ?? i;
+
+      for (const incoming of waiting) {
+        if (incoming.gender === outgoing.gender) continue;
+
+        const next = [...selected];
+        next[i] = incoming;
+        if (!canFieldCourtCount(next, requiredPlayers / 4)) continue;
+
+        const incomingRank = candidateRanks.get(incoming.id) ?? Number.MAX_SAFE_INTEGER;
+        const rankCost = incomingRank - outgoingRank;
+        const score = scoreSelection(next);
+
+        if (
+          !bestSwap ||
+          rankCost < bestSwap.rankCost ||
+          (rankCost === bestSwap.rankCost && score > bestSwap.score)
+        ) {
+          bestSwap = { outgoingIndex: i, incoming, rankCost, score };
+        }
+      }
+    }
+
+    if (bestSwap) {
+      selected[bestSwap.outgoingIndex] = bestSwap.incoming;
+    }
+  }
 
   for (let pass = 0; pass < MAX_SELECTION_PASSES; pass++) {
     let improved = false;
@@ -181,7 +226,7 @@ function selectBestPlayers(
       selected.map((p) => p.id),
     );
 
-    const waiting = candidates.filter(
+    const waiting = optimizationCandidates.filter(
       (p) => !selectedIds.has(p.id),
     );
 
@@ -196,6 +241,7 @@ function selectBestPlayers(
 
         const next = [...selected];
         next[i] = incoming;
+        if (!canFieldCourtCount(next, requiredPlayers / 4)) continue;
 
         const score = scoreSelection(next);
 
@@ -223,6 +269,53 @@ function selectBestPlayers(
    * determine the actual court/team arrangement.
    */
   return selected.sort(comparePriority);
+}
+
+function canFieldCourtCount(
+  players: Player[],
+  courtCount: number,
+): boolean {
+  return (
+    players.length === courtCount * 4 &&
+    legalCourtCapacity(players) >= courtCount
+  );
+}
+
+function legalCourtCapacity(
+  players: Player[],
+  separateDivisions = false,
+): number {
+  if (separateDivisions) {
+    const byDivision = new Map<string, Player[]>();
+    for (const player of players) {
+      const group = byDivision.get(player.division) ?? [];
+      group.push(player);
+      byDivision.set(player.division, group);
+    }
+    return [...byDivision.values()].reduce(
+      (total, group) => total + legalCourtCapacity(group),
+      0,
+    );
+  }
+
+  const men = players.filter((player) => player.gender === 'MALE').length;
+  const women = players.filter((player) => player.gender === 'FEMALE').length;
+  const maxMixedCourts = Math.min(
+    Math.floor(men / 2),
+    Math.floor(women / 2),
+  );
+  let capacity = 0;
+
+  for (let mixed = 0; mixed <= maxMixedCourts; mixed++) {
+    capacity = Math.max(
+      capacity,
+      mixed +
+        Math.floor((men - mixed * 2) / 4) +
+        Math.floor((women - mixed * 2) / 4),
+    );
+  }
+
+  return capacity;
 }
 
 /**
@@ -474,8 +567,7 @@ function generateSeparatedRound(
    */
   const capacityOf = (group: {
     pool: Player[];
-  }): number =>
-    Math.floor(group.pool.length / 4);
+  }): number => legalCourtCapacity(group.pool);
 
   /**
    * Phase A:
@@ -628,12 +720,12 @@ function generateSeparatedRound(
           EXTRA_CANDIDATES_PER_COURT,
     );
 
-    const candidates =
-      group.pool.slice(0, candidateCount);
+    const candidates = group.pool;
 
     const selected = selectBestPlayers(
       candidates,
       requiredPlayers,
+      group.pool.slice(0, candidateCount),
     );
 
     all.push(
@@ -783,13 +875,7 @@ export function canSwapFormat(
   outgoing: Player['gender'],
   incoming: Player['gender'],
 ): boolean {
-  if (
-    format === 'OPEN_DOUBLES'
-  ) {
-    return true;
-  }
-
-  return outgoing === incoming;
+  return format !== 'OPEN_DOUBLES' && outgoing === incoming;
 }
 
 /**
@@ -861,6 +947,7 @@ function buildBestFormatCourts(
   }
 
   let best: CourtAssignment[] | null = null;
+  let bestRepeatCount = Number.POSITIVE_INFINITY;
   let bestScore = Number.POSITIVE_INFINITY;
   for (const plan of candidates) {
     const courts = buildAllCourts(selected, courtCount, plan);
@@ -879,8 +966,16 @@ function buildBestFormatCourts(
     const score =
       courts.reduce((sum, court) => sum + courtCostOf(court), 0) +
       formatConcentration * 10;
-    if (score < bestScore) {
+    const repeatCount = courts.reduce(
+      (sum, court) => sum + courtRepeatCountOf(court),
+      0,
+    );
+    if (
+      repeatCount < bestRepeatCount ||
+      (repeatCount === bestRepeatCount && score < bestScore)
+    ) {
       best = courts;
+      bestRepeatCount = repeatCount;
       bestScore = score;
     }
   }

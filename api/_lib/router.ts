@@ -460,7 +460,7 @@ function isValidSwapLineup(format: GameFormat, lineup: SwapLineupPlayer[]): bool
   const teamA = lineup.filter((player) => player.team === 'A');
   const teamB = lineup.filter((player) => player.team === 'B');
   if (teamA.length !== 2 || teamB.length !== 2 || lineup.length !== 4) return false;
-  if (format === 'OPEN_DOUBLES') return true;
+  if (format === 'OPEN_DOUBLES') return false;
   if (format === 'MENS_DOUBLES') return lineup.every((player) => player.gender === 'MALE');
   if (format === 'WOMENS_DOUBLES') return lineup.every((player) => player.gender === 'FEMALE');
   const isMixedTeam = (team: SwapLineupPlayer[]) => team.filter((player) => player.gender === 'MALE').length === 1
@@ -587,7 +587,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   const separate = body?.separateDivisions === true;
   const formats = (Array.isArray(body?.courtFormats) ? body.courtFormats : [])
     .map((f) => {
-      if (f === 'MENS_DOUBLES' || f === 'WOMENS_DOUBLES' || f === 'MIXED_DOUBLES' || f === 'OPEN_DOUBLES') return f;
+      if (f === 'MENS_DOUBLES' || f === 'WOMENS_DOUBLES' || f === 'MIXED_DOUBLES') return f;
       return null;
     })
     .filter((f): f is NonNullable<typeof f> => f !== null);
@@ -631,6 +631,10 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
     allocation = manual;
   } else {
     allocation = generateRound(next, players, formats, separate, maxCourts);
+  }
+  if (allocation.courts.some((court) => court.format === 'OPEN_DOUBLES')) {
+    sendError(res, 400, 'Open doubles is not a supported court format');
+    return;
   }
   if (!sessionId || !nightId) {
     sendJson(res, 200, serializeAllocation(allocation));
@@ -708,7 +712,7 @@ function createManualAllocation(
   const usedPlayers = new Set<string>();
   const usedCourts = new Set<number>();
   const courts: CourtAssignment[] = [];
-  const validFormats: GameFormat[] = ['MENS_DOUBLES', 'WOMENS_DOUBLES', 'MIXED_DOUBLES', 'OPEN_DOUBLES'];
+  const validFormats: GameFormat[] = ['MENS_DOUBLES', 'WOMENS_DOUBLES', 'MIXED_DOUBLES'];
 
   for (const definition of definitions) {
     const courtNumber = Number(definition?.courtNumber);
