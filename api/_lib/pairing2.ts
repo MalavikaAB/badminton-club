@@ -513,169 +513,134 @@ export function replacePlayer(
 }
 
 /**
- * Improve already-created courts by swapping players between courts.
+ * Improve already-created courts by exchanging one or two players
+ * between courts.
  *
- * A swap is accepted only when:
+ * Each candidate is scored against the whole round. A move is accepted
+ * only when it:
  *
- *   new total pairing cost < old total pairing cost
+ * - reduces the number of repeated relationships, or
+ * - keeps that number unchanged and reduces total pairing cost
  *
- * and both courts remain legal.
+ * Both courts must remain legal for their formats.
  */
 export function localSearch(
   courts: CourtAssignment[],
 ): void {
   const MAX_PASSES = 100;
 
-  for (
-    let pass = 0;
-    pass < MAX_PASSES;
-    pass++
-  ) {
-    let improved = false;
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    const currentRepeatCount = courts.reduce(
+      (total, court) => total + courtRepeatCountOf(court),
+      0,
+    );
+    const currentCost = courts.reduce(
+      (total, court) => total + courtCostOf(court),
+      0,
+    );
 
-    for (
-      let i = 0;
-      i < courts.length;
-      i++
-    ) {
-      for (
-        let j = i + 1;
-        j < courts.length;
-        j++
-      ) {
+    let bestRepeatCount = currentRepeatCount;
+    let bestCost = currentCost;
+    let bestMove: {
+      courtAIndex: number;
+      courtBIndex: number;
+      courtA: CourtAssignment;
+      courtB: CourtAssignment;
+    } | null = null;
+
+    for (let i = 0; i < courts.length; i++) {
+      for (let j = i + 1; j < courts.length; j++) {
         const courtA = courts[i];
         const courtB = courts[j];
 
-        let swapped = false;
+        for (const groupA of exchangeGroups(courtA.players)) {
+          for (const groupB of exchangeGroups(courtB.players)) {
+            if (groupA.length !== groupB.length) continue;
 
-        for (
-          const playerA of [
-            ...courtA.players,
-          ]
-        ) {
-          for (
-            const playerB of [
-              ...courtB.players,
-            ]
-          ) {
-            const nextA =
-              replacePlayer(
-                courtA.players,
-                playerA,
-                playerB,
-              );
-
-            const nextB =
-              replacePlayer(
-                courtB.players,
-                playerB,
-                playerA,
-              );
+            const outgoingA = new Set(groupA.map((player) => player.id));
+            const outgoingB = new Set(groupB.map((player) => player.id));
+            const nextPlayersA = [
+              ...courtA.players.filter((player) => !outgoingA.has(player.id)),
+              ...groupB,
+            ];
+            const nextPlayersB = [
+              ...courtB.players.filter((player) => !outgoingB.has(player.id)),
+              ...groupA,
+            ];
 
             if (
-              !validForFormat(
-                courtA.format,
-                nextA,
-              ) ||
-              !validForFormat(
-                courtB.format,
-                nextB,
-              )
+              !validForFormat(courtA.format, nextPlayersA) ||
+              !validForFormat(courtB.format, nextPlayersB)
             ) {
               continue;
             }
 
-            const oldCost =
-              courtCostOf(
-                courtA,
-              ) +
-              courtCostOf(
-                courtB,
-              );
-
-            const splitA =
-              bestSplit(
-                nextA,
-                courtA.format,
-              );
-
-            const splitB =
-              bestSplit(
-                nextB,
-                courtB.format,
-              );
-
-            if (
-              !Number.isFinite(
-                splitA.cost,
-              ) ||
-              !Number.isFinite(
-                splitB.cost,
-              )
-            ) {
+            const splitA = bestSplit(nextPlayersA, courtA.format);
+            const splitB = bestSplit(nextPlayersB, courtB.format);
+            if (!Number.isFinite(splitA.cost) || !Number.isFinite(splitB.cost)) {
               continue;
             }
 
-            const newCost =
-              splitA.cost +
-              splitB.cost;
-            const oldRepeatCount =
-              repeatCountOf(courtA.teamA, courtA.teamB) +
-              repeatCountOf(courtB.teamA, courtB.teamB);
-            const newRepeatCount =
+            const nextRepeatCount =
+              currentRepeatCount -
+              courtRepeatCountOf(courtA) -
+              courtRepeatCountOf(courtB) +
               splitA.repeatCount +
               splitB.repeatCount;
+            const nextCost =
+              currentCost -
+              courtCostOf(courtA) -
+              courtCostOf(courtB) +
+              splitA.cost +
+              splitB.cost;
 
             if (
-              newRepeatCount > oldRepeatCount ||
-              (newRepeatCount === oldRepeatCount && newCost >= oldCost)
+              nextRepeatCount > bestRepeatCount ||
+              (nextRepeatCount === bestRepeatCount && nextCost >= bestCost)
             ) {
               continue;
             }
 
-            courts[i] = {
-              ...courtA,
-              players: nextA,
-              teamA:
-                splitA.teamA,
-              teamB:
-                splitA.teamB,
+            bestRepeatCount = nextRepeatCount;
+            bestCost = nextCost;
+            bestMove = {
+              courtAIndex: i,
+              courtBIndex: j,
+              courtA: {
+                ...courtA,
+                players: nextPlayersA,
+                teamA: splitA.teamA,
+                teamB: splitA.teamB,
+              },
+              courtB: {
+                ...courtB,
+                players: nextPlayersB,
+                teamA: splitB.teamA,
+                teamB: splitB.teamB,
+              },
             };
-
-            courts[j] = {
-              ...courtB,
-              players: nextB,
-              teamA:
-                splitB.teamA,
-              teamB:
-                splitB.teamB,
-            };
-
-            improved = true;
-            swapped = true;
-
-            break;
-          }
-
-          if (swapped) {
-            break;
           }
         }
-
-        if (swapped) {
-          break;
-        }
-      }
-
-      if (improved) {
-        break;
       }
     }
 
-    if (!improved) {
-      break;
+    if (!bestMove) break;
+
+    courts[bestMove.courtAIndex] = bestMove.courtA;
+    courts[bestMove.courtBIndex] = bestMove.courtB;
+  }
+}
+
+function exchangeGroups(players: Player[]): Player[][] {
+  const groups = players.map((player) => [player]);
+
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      groups.push([players[i], players[j]]);
     }
   }
+
+  return groups;
 }
 
 /**
