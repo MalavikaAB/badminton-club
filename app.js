@@ -89,6 +89,9 @@ let roster = [];
 let rounds = [];
 let waiting = [];
 let checkedInCount = 0;
+const checkinSaveQueues = new Map();
+let checkinRenderRequest = 0;
+let checkinChangeVersion = 0;
 let swapOutPlayerId = null;
 let selectedQueuePlayerId = null;
 let selectedCourtPlayerId = null;
@@ -378,43 +381,54 @@ function applyAllocation(allocation) {
 async function renderCheckins() {
   const session = selectedSession();
   if (!session) return;
+  const requestId = ++checkinRenderRequest;
+  const changeVersion = checkinChangeVersion;
   const response = await fetch(`${apiBaseUrl}/sessions/${session}/check-ins`);
   if (!response.ok) throw new Error(`Could not load check-ins: ${response.status}`);
   const checkIns = await response.json();
+  if (session !== selectedSession() || requestId !== checkinRenderRequest) return;
+  if (changeVersion !== checkinChangeVersion) return renderCheckins();
   const checkedIn = new Set(checkIns.map(item => item.playerId));
   const sessionDefinition = clubSessions.find(item => item.id === session);
   const players = roster.filter(player => sessionDefinition.divisions.includes(player.division));
+  checkinSaveQueues.forEach((save, key) => {
+    if (key.startsWith(`${session}:`) && save.desired) checkedIn.add(key.slice(session.length + 1));
+    else if (key.startsWith(`${session}:`)) checkedIn.delete(key.slice(session.length + 1));
+  });
   document.querySelector('#checkin-list').innerHTML = players.length ? players.map(player => `
     <label class="checkin-player"><input type="checkbox" data-checkin-id="${player.id}" ${checkedIn.has(player.id) ? 'checked' : ''}><span>${player.name}</span><small>Div ${player.division} · ${player.gender === 'MALE' ? 'Male' : 'Female'} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'} tonight</small></label>`).join('') : '<p class="empty-state">No players in these divisions yet. Add one in the Players tab.</p>';
   checkedInCount = checkedIn.size;
   document.querySelector('#checkin-count').textContent = `${checkedIn.size} checked in`;
   updateGenerateButton();
-  document.querySelectorAll('[data-checkin-id]').forEach(input => input.addEventListener('change', async event => {
+  document.querySelectorAll('[data-checkin-id]').forEach(input => input.addEventListener('change', event => {
     const box = event.target;
     const method = box.checked ? 'POST' : 'DELETE';
-    // Optimistic toggle: keep the checkbox exactly as the user left it and
-    // fire the request in the background, so ticking feels instant and the
-    // box never flickers while a re-render is in flight. The server stamps
-    // checked_in_at with now() per player, so timing data is unaffected.
+    const playerId = box.dataset.checkinId;
+    const key = `${session}:${playerId}`;
+    const save = checkinSaveQueues.get(key) || { revision: 0, desired: box.checked, tail: Promise.resolve() };
+    save.revision++;
+    save.desired = box.checked;
+    checkinSaveQueues.set(key, save);
+    const revision = save.revision;
+    checkinChangeVersion++;
     if (box.checked) checkedInCount++; else checkedInCount--;
     document.querySelector('#checkin-count').textContent = `${checkedInCount} checked in`;
     updateGenerateButton();
-    box.disabled = true;
-    let ok = false;
-    try {
-      const response = await fetch(`${apiBaseUrl}/sessions/${session}/check-ins/${box.dataset.checkinId}`, { method });
-      ok = response.ok;
-    } catch { ok = false; }
-    box.disabled = false;
-    if (!ok) {
-      box.checked = !box.checked;
-      if (box.checked) checkedInCount++; else checkedInCount--;
-      document.querySelector('#checkin-count').textContent = `${checkedInCount} checked in`;
-      updateGenerateButton();
+    save.tail = save.tail.catch(() => {}).then(async () => {
+      const response = await fetch(`${apiBaseUrl}/sessions/${session}/check-ins/${playerId}`, { method });
+      if (!response.ok) throw new Error(`Could not save check-in: ${response.status}`);
+    });
+    save.tail.then(() => {
+      if (save.revision !== revision) return;
+      checkinSaveQueues.delete(key);
+      scheduleCheckinSync();
+    }).catch(error => {
+      console.error('Could not save check-in:', error);
+      if (save.revision !== revision) return;
+      checkinSaveQueues.delete(key);
       window.alert('Could not save that check-in — check your connection and try again.');
-      return;
-    }
-    scheduleCheckinSync();
+      renderCheckins().catch(error => console.error('Could not refresh check-ins:', error));
+    });
   }));
 }
 
