@@ -15,6 +15,14 @@ const PARTNER_WEIGHT = 2.0;
 const OPPONENT_WEIGHT = 1.0;
 const BEGINNER_HIGHER_DIVISION_PENALTY = 250;
 
+export function relationshipRepeatPenalty(meetings: number): number {
+  if (meetings <= 0) return 0;
+  if (meetings === 1) return 10;
+  if (meetings === 2) return 30;
+  if (meetings === 3) return 60;
+  return 100 + (meetings - 4) * 50;
+}
+
 /**
  * Immediate-repeat penalties.
  *
@@ -180,14 +188,8 @@ export function courtCost(
   cost +=
     PARTNER_WEIGHT *
     (
-      pairWith(
-        teamA[0],
-        teamA[1].id,
-      ) +
-      pairWith(
-        teamB[0],
-        teamB[1].id,
-      )
+      relationshipRepeatPenalty(pairWith(teamA[0], teamA[1].id)) +
+      relationshipRepeatPenalty(pairWith(teamB[0], teamB[1].id))
     );
 
   /**
@@ -198,22 +200,10 @@ export function courtCost(
   cost +=
     OPPONENT_WEIGHT *
     (
-      oppWith(
-        teamA[0],
-        teamB[0].id,
-      ) +
-      oppWith(
-        teamA[0],
-        teamB[1].id,
-      ) +
-      oppWith(
-        teamA[1],
-        teamB[0].id,
-      ) +
-      oppWith(
-        teamA[1],
-        teamB[1].id,
-      )
+      relationshipRepeatPenalty(oppWith(teamA[0], teamB[0].id)) +
+      relationshipRepeatPenalty(oppWith(teamA[0], teamB[1].id)) +
+      relationshipRepeatPenalty(oppWith(teamA[1], teamB[0].id)) +
+      relationshipRepeatPenalty(oppWith(teamA[1], teamB[1].id))
     );
 
   /**
@@ -426,8 +416,8 @@ export function bestSplit(
     const repeatCount = repeatCountOf(teamA, teamB);
 
     if (
-      repeatCount < bestRepeatCount ||
-      (repeatCount === bestRepeatCount && cost < bestCost)
+      cost < bestCost ||
+      (cost === bestCost && repeatCount < bestRepeatCount)
     ) {
       bestRepeatCount = repeatCount;
       bestCost = cost;
@@ -517,10 +507,8 @@ export function replacePlayer(
  * between courts.
  *
  * Each candidate is scored against the whole round. A move is accepted
- * only when it:
- *
- * - reduces the number of repeated relationships, or
- * - keeps that number unchanged and reduces total pairing cost
+ * only when it reduces total pairing cost, using repeated relationship
+ * frequency as a tie-breaker.
  *
  * Both courts must remain legal for their formats.
  */
@@ -595,8 +583,8 @@ export function localSearch(
               splitB.cost;
 
             if (
-              nextRepeatCount > bestRepeatCount ||
-              (nextRepeatCount === bestRepeatCount && nextCost >= bestCost)
+              nextCost > bestCost ||
+              (nextCost === bestCost && nextRepeatCount >= bestRepeatCount)
             ) {
               continue;
             }
