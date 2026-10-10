@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { bestSplit, relationshipRepeatPenalty } from '../api/_lib/pairing2.js';
 import { generateRound } from '../api/_lib/scheduler.js';
+import { qualityReport, summarisePairings } from '../api/_lib/pairingQuality.js';
 import { makePlayer, type Player } from '../api/_lib/types.js';
 
 const ROUNDS_TO_SIMULATE = 20;
@@ -270,4 +271,154 @@ function updatePlayerHistory(
       player.lastOpponents = opponents.map((opponent) => opponent.id);
     }
   }
+
+// ---------------------------------------------------------------------------
+// Outcome-level quality reporting (review report recommendation #5).
+//
+// The report claimed partner history could not be measured because it was
+// "not present". The code already records pairCount separately from oppCount,
+// so we verify that reporting works end-to-end and that it is symmetric.
+// ---------------------------------------------------------------------------
+
+test('quality report summarises partner and opponent pair frequency', () => {
+  const players = ['a', 'b', 'c', 'd'].map((id) =>
+    makePlayer(id, id, 'MALE', '10', new Date(Date.UTC(2026, 0, 1)).toISOString(), 2, 0),
+  );
+  const [a, b, c, d] = players;
+
+  // Opponent history: a-b met twice, c-d met three times, a-c met once.
+  a.oppCount[b.id] = 2; b.oppCount[a.id] = 2;
+  c.oppCount[d.id] = 3; d.oppCount[c.id] = 3;
+  a.oppCount[c.id] = 1; c.oppCount[a.id] = 1;
+
+  // Partner history: a-b teamed once, c-d teamed four times.
+  a.pairCount[b.id] = 1; b.pairCount[a.id] = 1;
+  c.pairCount[d.id] = 4; d.pairCount[c.id] = 4;
+
+  const report = qualityReport(players);
+
+  assert.deepEqual(
+    {
+      distinctPairs: report.opponent.distinctPairs,
+      metOnce: report.opponent.metOnce,
+      met2Plus: report.opponent.met2Plus,
+      met3Plus: report.opponent.met3Plus,
+      met4Plus: report.opponent.met4Plus,
+      maxMeetings: report.opponent.maxMeetings,
+      repeatedMeetings: report.opponent.repeatedMeetings,
+    },
+    { distinctPairs: 3, metOnce: 1, met2Plus: 2, met3Plus: 1, met4Plus: 0, maxMeetings: 3, repeatedMeetings: 3 },
+  );
+
+  assert.equal(report.partner.maxMeetings, 4);
+  assert.equal(report.partner.met4Plus, 1);
+  assert.equal(report.partner.distinctPairs, 2);
+  assert.equal(report.gamesPlayedMin, 2);
+  assert.equal(report.gamesPlayedMax, 2);
+  assert.equal(report.gamesPlayedStdDev, 0);
+});
+
+test('summarisePairings counts each unordered pair exactly once', () => {
+  const [a, b] = ['x', 'y'].map((id) =>
+    makePlayer(id, id, 'FEMALE', '7', new Date(Date.UTC(2026, 0, 1)).toISOString(), 0, 0),
+  );
+  a.oppCount[b.id] = 5;
+  b.oppCount[a.id] = 5;
+
+  const summary = summarisePairings([a, b], 'oppCount');
+  assert.equal(summary.distinctPairs, 1);
+  assert.equal(summary.maxMeetings, 5);
+  assert.equal(summary.repeatedMeetings, 4);
+  assert.equal(summary.met2Plus, 1);
+  assert.equal(summary.met3Plus, 1);
+  assert.equal(summary.met4Plus, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Large-pool benchmark that reproduces the report's scenario: many players,
+// limited courts, so waiting rotation forces some repeats. Confirms the
+// allocator keeps repeats low and never produces an illegal court.
+// ---------------------------------------------------------------------------
+
+const BENCH_ROUNDS = 13;
+
+function createLargePool(playerCount: number): Player[] {
+  const players: Player[] = [];
+  for (let index = 0; index < playerCount; index++) {
+    const gender = index % 2 === 0 ? 'MALE' : 'FEMALE';
+    const division = String(8 + (index % 3));
+    players.push(
+      makePlayer(
+        `p${index}`,
+        `Player ${index}`,
+        gender,
+        division,
+        new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+        0,
+        0,
+      ),
+    );
+  }
+  return players;
+}
+
+test('13-round large-pool rotation stays legal and diverse', () => {
+  const players = createLargePool(41);
+  const courtsPerRound = 5;
+
+  for (let roundNumber = 1; roundNumber <= BENCH_ROUNDS; roundNumber++) {
+    const allocation = generateRound(roundNumber, players, null, false, courtsPerRound);
+
+    // Every produced court must be legal and non-overlapping.
+    const assignedIds = new Set<string>();
+    for (const court of allocation.courts) {
+      assert.equal(court.players.length, 4);
+      const men = court.players.filter((p) => p.gender === 'MALE').length;
+      const women = 4 - men;
+      if (court.format === 'MENS_DOUBLES') assert.equal(women, 0);
+      else if (court.format === 'WOMENS_DOUBLES') assert.equal(men, 0);
+      else {
+        assert.equal(court.format, 'MIXED_DOUBLES');
+        assert.equal(men, 2);
+        assert.equal(women, 2);
+      }
+      for (const p of court.players) {
+        assert(!assignedIds.has(p.id), 'a player must not appear twice in a round');
+        assignedIds.add(p.id);
+      }
+    }
+
+    updatePlayerHistory(allocation.courts);
+  }
+
+  const report = qualityReport(players);
+
+  // Sanity: repeats are bounded, not runaway. A repeated meeting is any
+  // pair that met at least twice; with 41 players over 13 rounds the
+  // allocator should keep the vast majority of pairs first-time.
+  assert(
+    report.opponent.distinctPairs > 0,
+    'opponent pairs should be recorded',
+  );
+  assert(
+    report.opponent.metOnce >= report.opponent.met2Plus,
+    'most opponent pairs should be first-time meetings',
+  );
+
+  // Games played should stay within a tight band for a fair rotation.
+  assert(
+    report.gamesPlayedMax - report.gamesPlayedMin <= 3,
+    `games-played spread should stay small (min=${report.gamesPlayedMin}, max=${report.gamesPlayedMax})`,
+  );
+
+  console.info(
+    `41 players / ${BENCH_ROUNDS} rounds: opponent pairs=${report.opponent.distinctPairs}, ` +
+      `met2+=${report.opponent.met2Plus}, met3+=${report.opponent.met3Plus}, ` +
+      `maxOppMeetings=${report.opponent.maxMeetings}, ` +
+      `partner pairs=${report.partner.distinctPairs}, met2+=${report.partner.met2Plus}, ` +
+      `maxPartnerMeetings=${report.partner.maxMeetings}, ` +
+      `games=${report.gamesPlayedMin}-${report.gamesPlayedMax} (sd=${report.gamesPlayedStdDev.toFixed(2)})`,
+  );
+});
+
 }
