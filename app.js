@@ -1,6 +1,7 @@
 const apiBaseUrl = '/api/club-night';
 
 const SELECTED_SESSION_KEY = 'badminton-club-selected-session'; const MANUAL_DRAFT_KEY = 'badminton-club-manual-round-draft';
+const ROUND_TIMER_KEY = 'badminton-club-round-timer';
 let appStarted = false;
 let playerRefreshTimer = null;
 // Avoid retaining URL query parameters that could contain sensitive data.
@@ -92,6 +93,7 @@ let checkedInCount = 0;
 const checkinSaveQueues = new Map();
 let checkinRenderRequest = 0;
 let checkinChangeVersion = 0;
+let latestRoundRequest = 0;
 let swapOutPlayerId = null;
 let selectedQueuePlayerId = null;
 let selectedCourtPlayerId = null;
@@ -422,6 +424,7 @@ async function renderCheckins() {
       if (save.revision !== revision) return;
       checkinSaveQueues.delete(key);
       scheduleCheckinSync();
+      if (!manualMode) initializeLatestRound().catch(error => console.error('Could not refresh the court queue:', error));
     }).catch(error => {
       console.error('Could not save check-in:', error);
       if (save.revision !== revision) return;
@@ -1071,6 +1074,50 @@ function formatClock(seconds) {
   return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`;
 }
 
+function persistRoundTimer() {
+  const remaining = timerTick !== null
+    ? Math.max(0, Math.ceil((timerDeadline - Date.now()) / 1000))
+    : timerRemaining;
+  try {
+    localStorage.setItem(ROUND_TIMER_KEY, JSON.stringify({
+      minutes: roundMinutes,
+      remaining,
+      deadline: timerDeadline,
+      started: timerStarted,
+      running: timerTick !== null
+    }));
+  } catch (error) {
+    console.error('Could not save the round timer:', error);
+  }
+}
+
+function restoreRoundTimer() {
+  let saved;
+  try {
+    const value = localStorage.getItem(ROUND_TIMER_KEY);
+    if (value) saved = JSON.parse(value);
+  } catch (error) {
+    console.error('Could not restore the round timer:', error);
+    return;
+  }
+  if (!saved || !Number.isInteger(saved.minutes) || saved.minutes < 1 || saved.minutes > 180
+    || !Number.isFinite(saved.remaining) || typeof saved.started !== 'boolean'
+    || typeof saved.running !== 'boolean') return;
+
+  roundMinutes = saved.minutes;
+  document.querySelector('#timer-minutes').value = String(roundMinutes);
+  timerStarted = saved.started;
+  if (saved.running && Number.isFinite(saved.deadline)) {
+    timerDeadline = saved.deadline;
+    timerRemaining = Math.max(0, Math.ceil((timerDeadline - Date.now()) / 1000));
+    if (timerRemaining > 0) timerTick = setInterval(tickRoundTimer, 250);
+    else timerStarted = true;
+  } else {
+    timerRemaining = Math.max(0, Math.min(roundSeconds(), Math.ceil(saved.remaining)));
+  }
+  persistRoundTimer();
+}
+
 function renderRoundTimer() {
   const running = timerTick !== null;
   const finished = timerRemaining === 0;
@@ -1178,6 +1225,7 @@ function tickRoundTimer() {
     return;
   }
   stopRoundTimer();
+  persistRoundTimer();
   renderRoundTimer();
   announceTimer(`Time — the ${roundMinutes} minute round is up.`);
   playRoundAlarm();
@@ -1189,6 +1237,7 @@ function startRoundTimer() {
   stopRoundTimer();
   timerTick = setInterval(tickRoundTimer, 250);
   timerStarted = true;
+  persistRoundTimer();
   unlockAlarmAudio();
   announceTimer(`${roundMinutes} minute round started.`);
   renderRoundTimer();
@@ -1197,6 +1246,7 @@ function startRoundTimer() {
 function pauseRoundTimer() {
   timerRemaining = Math.max(0, Math.ceil((timerDeadline - Date.now()) / 1000));
   stopRoundTimer();
+  persistRoundTimer();
   renderRoundTimer();
 }
 
@@ -1210,6 +1260,8 @@ function resetRoundTimer() {
   stopRoundAlarm();
   timerRemaining = roundSeconds();
   timerStarted = false;
+  timerDeadline = 0;
+  persistRoundTimer();
   announceTimer('');
   renderRoundTimer();
 }
@@ -1229,6 +1281,7 @@ function changeRoundDuration() {
   roundMinutes = Math.min(180, Math.max(1, requestedMinutes));
   input.value = String(roundMinutes);
   timerRemaining = roundSeconds();
+  persistRoundTimer();
   announceTimer(`Timer set to ${roundMinutes} minutes.`);
   renderRoundTimer();
 }
@@ -1499,7 +1552,7 @@ function announce() {
   document.addEventListener('keydown', onKey);
   document.body.appendChild(overlay);
 }
-renderCourts(); renderWaiting(); renderRoundTimer();
+renderCourts(); renderWaiting(); restoreRoundTimer(); renderRoundTimer();
 renderViews();
 setupSessionDropdowns();
 document.querySelector('#player-session-select').addEventListener('change', () => {
@@ -1539,7 +1592,9 @@ document.querySelector('#end-night-button').addEventListener('click', endClubNig
 // left the court, so re-read the latest round on the way back.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && clubSessions.length) {
-    initializeLatestRound().catch(() => {});
+    if (!manualMode) {
+      initializeLatestRound().catch(error => console.error('Could not refresh the court queue:', error));
+    }
     if (document.body.dataset.tab === 'statistics-view') loadStatistics();
   }
 });
@@ -1676,8 +1731,12 @@ async function loadPlayerAllocation() {
 }
 
 async function initializeLatestRound() {
-  const response = await fetch(`${apiBaseUrl}/sessions/${selectedSession()}/rounds/latest`);
+  const sessionId = selectedSession();
+  const requestId = ++latestRoundRequest;
+  if (!sessionId) return;
+  const response = await fetch(`${apiBaseUrl}/sessions/${sessionId}/rounds/latest`);
   if (!response.ok) throw new Error(`Could not load latest round: ${response.status}`);
+  if (sessionId !== selectedSession() || requestId !== latestRoundRequest) return;
   applyAllocation(await response.json());
   restoreManualDraft();
 }
