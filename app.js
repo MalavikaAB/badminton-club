@@ -575,17 +575,19 @@ async function loadStatistics() {
       <tr>
         <th scope="row"><span>${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)}</small></th>
         <td class="statistics-games">${Number(player.gamesPlayed) || 0}</td>
-        ${players.map(opponent => {
-          if (player.id === opponent.id) return '<td class="statistics-diagonal" aria-label="Same player">—</td>';
-          const count = Number(player.opponents?.[opponent.id]) || 0;
-          return `<td${count ? ' class="statistics-met"' : ''}>${count}</td>`;
+        ${players.map(otherPlayer => {
+          if (player.id === otherPlayer.id) return '<td class="statistics-diagonal" aria-label="Same player">—</td>';
+          const partners = Number(player.partners?.[otherPlayer.id]) || 0;
+          const opponents = Number(player.opponents?.[otherPlayer.id]) || 0;
+          const sharedCourts = partners + opponents;
+          return `<td${sharedCourts ? ' class="statistics-met"' : ''} aria-label="${sharedCourts} shared courts: ${partners} as partners, ${opponents} as opponents"><span class="statistics-shared-count">${sharedCourts}</span><small class="statistics-relationship-counts">P ${partners} · O ${opponents}</small></td>`;
         }).join('')}
       </tr>`).join('');
 
     matrix.innerHTML = `
-      <div class="statistics-table-scroll" role="region" aria-label="Opponent matrix; scroll horizontally to see all players" tabindex="0">
+      <div class="statistics-table-scroll" role="region" aria-label="Shared court matrix; scroll horizontally to see all players" tabindex="0">
         <table class="statistics-table">
-          <caption class="visually-hidden">Number of games each player has played against each other player. The games column shows total games played.</caption>
+          <caption class="visually-hidden">Number of shared courts for each player pair, with partner and opponent counts. P means partner and O means opponent. The games column shows total games played.</caption>
           <thead><tr><th scope="col">Player</th><th scope="col" class="statistics-games">Games</th>${columns}</tr></thead>
           <tbody>${rows}</tbody>
         </table>

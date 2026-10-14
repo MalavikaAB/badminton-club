@@ -156,6 +156,7 @@ select { appearance:none; padding-right:38px; background-image:linear-gradient(4
 .statistics-session-picker select { width:100%; }
 .statistics-session-picker + .secondary-button { min-height:42px; }
 .statistics-summary { color:var(--muted); font:12px 'DM Mono',monospace; margin:0 0 14px; }
+.statistics-legend { color:var(--muted); font:11px 'DM Mono',monospace; margin:0 0 10px; }
 .statistics-matrix { max-width:100%; }
 .statistics-table-scroll { max-width:100%; overflow:auto; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
 .statistics-table { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; font:12px 'DM Mono',monospace; }
@@ -169,6 +170,8 @@ select { appearance:none; padding-right:38px; background-image:linear-gradient(4
 .statistics-table th small { color:var(--muted); font:10px 'DM Mono',monospace; margin-top:3px; }
 .statistics-table tbody th { font:600 12px 'Space Grotesk',sans-serif; }
 .statistics-table .statistics-games { font-weight:600; }
+.statistics-table .statistics-shared-count,.statistics-table .statistics-relationship-counts { display:block; }
+.statistics-table .statistics-relationship-counts { color:var(--muted); font-size:9px; margin-top:3px; white-space:nowrap; }
 .statistics-table .statistics-met { color:var(--green); background:#eef5d8; font-weight:600; }
 .statistics-table .statistics-diagonal { color:#9aa49d; background:#f2f1eb; }
 .statistics-table tr:last-child th,.statistics-table tr:last-child td { border-bottom:0; }

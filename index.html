@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Club Night Board</title>
-  <link rel="stylesheet" href="styles.css?v=20261004-opponent-matrix">
+  <link rel="stylesheet" href="styles.css?v=20261014-shared-court-matrix">
 </head>
 <body data-tab="board-view">
   <div id="auth-screen" class="auth-screen">
@@ -182,8 +182,8 @@
     <section id="statistics-view" class="view">
       <div class="page-heading">
         <p class="eyebrow">CLUB NIGHT STATISTICS</p>
-        <h2>Opponent matrix</h2>
-        <p class="muted">See how many games each player has played against every other player this night.</p>
+        <h2>Shared court matrix</h2>
+        <p class="muted">See how often players have shared a court, including how many times they were partners or opponents.</p>
       </div>
       <div class="statistics-toolbar">
         <label class="statistics-session-picker" for="statistics-session-select">Session
@@ -193,6 +193,7 @@
       </div>
       <p id="statistics-session" class="schedule-note"></p>
       <p id="statistics-summary" class="statistics-summary" role="status"></p>
+      <p class="statistics-legend">Each cell shows shared courts, then partner (P) and opponent (O) counts.</p>
       <p id="statistics-error" class="login-error" role="alert" hidden></p>
       <div id="statistics-matrix" class="statistics-matrix"></div>
     </section>
@@ -206,6 +207,6 @@
       <button class="secondary-button" id="swap-cancel">Cancel</button>
     </div>
   </div>
-  <script src="app.js?v=20261004-opponent-matrix"></script>
+  <script src="app.js?v=20261014-shared-court-matrix"></script>
 </body>
 </html>

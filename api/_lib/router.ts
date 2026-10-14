@@ -455,7 +455,7 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
     return;
   }
 
-  const [roundRows, playerRows, opponentRows] = await Promise.all([
+  const [roundRows, playerRows, relationshipRows] = await Promise.all([
     sql`select count(*)::int as rounds_played from venue_rounds where night_id = ${nightId}`,
     sql`select p.id, p.name, p.gender, p.division, count(rp.player_id)::int as games_played
       from players p
@@ -472,25 +472,32 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
       )
       group by p.id, p.name, p.gender, p.division
       order by p.name, p.id`,
-    sql`select a.player_id, b.player_id as opponent_id, count(*)::int as games_together
+    sql`select a.player_id, b.player_id as other_player_id,
+        sum(case when a.team = b.team then 1 else 0 end)::int as partner_games,
+        sum(case when a.team <> b.team then 1 else 0 end)::int as opponent_games
       from venue_round_players a
       join venue_round_players b
         on b.round_id = a.round_id
         and b.court_number = a.court_number
-        and b.team <> a.team
+        and b.player_id <> a.player_id
       join venue_rounds r on r.id = a.round_id
       where r.night_id = ${nightId}
         and a.court_number is not null
         and a.team in ('A', 'B')
+        and b.team in ('A', 'B')
       group by a.player_id, b.player_id`,
   ]);
 
+  const partnersByPlayer = new Map<string, Record<string, number>>();
   const opponentsByPlayer = new Map<string, Record<string, number>>();
-  for (const row of opponentRows as any[]) {
+  for (const row of relationshipRows as any[]) {
     const playerId = String(row.player_id);
-    const opponentId = String(row.opponent_id);
+    const otherPlayerId = String(row.other_player_id);
+    const partners = partnersByPlayer.get(playerId) ?? {};
+    partners[otherPlayerId] = Number(row.partner_games);
+    partnersByPlayer.set(playerId, partners);
     const opponents = opponentsByPlayer.get(playerId) ?? {};
-    opponents[opponentId] = Number(row.games_together);
+    opponents[otherPlayerId] = Number(row.opponent_games);
     opponentsByPlayer.set(playerId, opponents);
   }
 
@@ -503,6 +510,7 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
       gender: row.gender,
       division: row.division,
       gamesPlayed: Number(row.games_played),
+      partners: partnersByPlayer.get(String(row.id)) ?? {},
       opponents: opponentsByPlayer.get(String(row.id)) ?? {},
     })),
   });
