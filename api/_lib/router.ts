@@ -276,7 +276,7 @@ async function handlePlayers(req: VercelRequest, res: VercelResponse, method: st
     }
     const id = randomUUID();
     await sql`insert into players (id, name, gender, division, beginner)
-      values (${id}, ${name}, ${gender}, ${division}, ${beginner})`;
+      values (${id}::uuid, ${name}, ${gender}, ${division}, ${beginner})`;
     sendJson(res, 200, { id, name, gender, division, beginner, gamesPlayed: 0 });
     return;
   }
@@ -377,7 +377,7 @@ async function handleCheckIns(
       // generation paths, which also consult the clock.)
       await Promise.all([
         sql`insert into venue_check_ins (session_id, player_id, sit_out_rounds)
-          values (${sessionId}, ${playerId}, 0)
+          values (${sessionId}, ${playerId}::uuid, 0)
           on conflict (session_id, player_id) do update set checked_in_at = now()`,
         ensureOpenNight(sessionId),
       ]);
@@ -631,8 +631,8 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
       await tx`delete from venue_round_players
         where round_id = ${roundId} and player_id in (${outId}, ${inId})`;
       await tx`insert into venue_round_players (round_id, court_number, format, team, player_id)
-        values (${roundId}, ${outgoing.court_number}, ${outgoing.format}, ${outgoing.team}, ${inId}),
-          (${roundId}, ${assignedIncoming.court_number}, ${assignedIncoming.format}, ${assignedIncoming.team}, ${outId})`;
+        values (${roundId}::uuid, ${outgoing.court_number}, ${outgoing.format}, ${outgoing.team}, ${inId}::uuid),
+          (${roundId}::uuid, ${assignedIncoming.court_number}, ${assignedIncoming.format}, ${assignedIncoming.team}, ${outId}::uuid)`;
     });
   } else {
     if (!contextRow.incoming_checkin_id || Number(contextRow.incoming_sit_out_rounds ?? 0) > 0) {
@@ -642,7 +642,7 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
     await sql.begin(async (tx: any) => {
       await tx`delete from venue_round_players where round_id = ${roundId} and player_id = ${outId}`;
       await tx`insert into venue_round_players (round_id, court_number, format, team, player_id)
-        values (${roundId}, ${outgoing.court_number}, ${outgoing.format}, ${outgoing.team}, ${inId})`;
+        values (${roundId}::uuid, ${outgoing.court_number}, ${outgoing.format}, ${outgoing.team}, ${inId}::uuid)`;
       await tx`update players set
         rounds_waiting = case when id = ${outId} then rounds_waiting + 1 else 0 end,
         games_played = (select count(*) from venue_round_players rp
@@ -724,7 +724,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   }
   const roundId = randomUUID();
   await sql`insert into venue_rounds (id, session_id, night_id, round_number)
-    values (${roundId}, ${sessionId}, ${nightId}, ${allocation.roundNumber})`;
+    values (${roundId}::uuid, ${sessionId}, ${nightId}::uuid, ${allocation.roundNumber})`;
   const rows = allocation.courts.flatMap((court) => {
     const teamA = new Set(court.teamA.map((p) => p.id));
     return court.players.map((p) => ({

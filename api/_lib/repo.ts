@@ -134,7 +134,7 @@ export async function ensureOpenNight(sessionId: string): Promise<string> {
   if (existing) return existing;
   const sql = db();
   const id = randomUUID();
-  await sql`insert into venue_nights (id, session_id, status) values (${id}, ${sessionId}, 'OPEN')`;
+  await sql`insert into venue_nights (id, session_id, status) values (${id}::uuid, ${sessionId}, 'OPEN')`;
   return id;
 }
 

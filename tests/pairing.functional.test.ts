@@ -1,10 +1,185 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { bestSplit, relationshipRepeatPenalty } from '../api/_lib/pairing2.js';
 import { generateRound } from '../api/_lib/scheduler.js';
 import { qualityReport, summarisePairings } from '../api/_lib/pairingQuality.js';
 import { makePlayer, type Player } from '../api/_lib/types.js';
+
+// Tests run from the repo root (npm run test:pairing), so resolve the sources
+// from cwd rather than import.meta.url — the compiled output lives under
+// .pairing-tests/, which does not mirror the original api/ layout.
+const apiLib = join(process.cwd(), 'api', '_lib');
+
+/**
+ * Columns declared `uuid` in api/_lib/schema.ts, grouped by table.
+ *
+ * postgres.js sends every parameter with an unspecified type (0) in its Parse
+ * message, so the server usually infers the target type from the statement. It
+ * cannot do that once the parameter sits on the left of a set operation such as
+ * `union all` — the branch is resolved to `text` before the INSERT target is
+ * consulted — which surfaces at runtime as:
+ *
+ *   column "night_id" is of type uuid but expression is of type text
+ *
+ * so any parameter written into one of these columns carries an explicit
+ * `::uuid` cast instead of relying on inference.
+ */
+const UUID_COLUMNS: Record<string, Set<string>> = {
+  players: new Set(['id']),
+  venue_nights: new Set(['id']),
+  venue_rounds: new Set(['id', 'night_id']),
+  venue_round_players: new Set(['round_id', 'player_id']),
+  venue_check_ins: new Set(['player_id']),
+  venue_pair_counts: new Set(['night_id', 'player_id', 'other_id']),
+};
+
+const SOURCE_FILES = [
+  'repo.ts',
+  'repo2.ts',
+  'router.ts',
+  'latest.ts',
+  'auth.ts',
+];
+
+function readSource(file: string): string {
+  return readFileSync(join(apiLib, file), 'utf8');
+}
+
+/** Collapse a tagged template into one string, keeping `${...}` markers. */
+function templateBodies(source: string): string[] {
+  // `sql`...`` / `tx`...`` / `client`...``, non-greedy, no nested backticks.
+  return [...source.matchAll(/(?:sql|tx|client)`([^`]*)`/g)].map((m) => m[1]);
+}
+
+/** Split on top-level commas only, ignoring commas inside `${...}` or `()`. */
+function splitTopLevel(input: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (let i = 0; i < input.length; i++) {
+    const char = input[i];
+    if (char === '{' || char === '(') depth++;
+    else if (char === '}' || char === ')') depth--;
+    if (char === ',' && depth === 0) {
+      parts.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
+}
+
+/** Pull the value expression out of `${expr}::uuid` (or a bare `${expr}`). */
+function interpolationOf(fragment: string): string | null {
+  const match = fragment.match(/\$\{([^{}]*)\}/);
+  return match ? match[1].trim() : null;
+}
+
+interface InsertStatement {
+  table: string;
+  columns: string[];
+  values: string[];
+}
+
+function findInserts(body: string): InsertStatement[] {
+  const inserts: InsertStatement[] = [];
+  const pattern = /insert\s+into\s+([a-z_]+)\s*\(([^)]*)\)\s*values\s*\(([^)]*)\)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(body)) !== null) {
+    inserts.push({
+      table: match[1].toLowerCase(),
+      columns: splitTopLevel(match[2]).map((c) => c.trim()),
+      values: splitTopLevel(match[3]),
+    });
+  }
+  return inserts;
+}
+
+test('every uuid column in an insert has an explicitly cast parameter', () => {
+  let checked = 0;
+
+  for (const file of SOURCE_FILES) {
+    for (const body of templateBodies(readSource(file))) {
+      for (const insert of findInserts(body)) {
+        const uuidColumns = UUID_COLUMNS[insert.table];
+        if (!uuidColumns) continue;
+
+        insert.columns.forEach((column, index) => {
+          if (!uuidColumns.has(column)) return;
+          const raw = insert.values[index] ?? '';
+          const expression = interpolationOf(raw);
+          if (!expression) return; // literal / helper-generated value
+
+          checked++;
+          // The cast lives *outside* the interpolation: `${id}::uuid`. Check the
+          // whole value fragment, not just the expression inside the braces.
+          assert.ok(
+            raw.trim().endsWith('::uuid'),
+            `${file}: insert into ${insert.table} (${column}) uses \${${expression}} ` +
+              'without a ::uuid cast, which fails inside set operations with ' +
+              '"column ... is of type uuid but expression is of type text".',
+          );
+        });
+      }
+    }
+  }
+
+  assert.ok(checked > 0, 'expected to find uuid-column inserts to verify');
+});
+
+test('inserting a round never relies on server-side type inference for night_id', () => {
+  const router = readSource('router.ts');
+  const insert = templateBodies(router).find((body) =>
+    body.includes('insert into venue_rounds'),
+  );
+
+  assert.ok(insert, 'router.ts should insert into venue_rounds');
+  assert.match(
+    insert,
+    /values\s*\(\s*\$\{[^}]*\}::uuid\s*,\s*\$\{[^}]*\}\s*,\s*\$\{[^}]*\}::uuid/,
+    'the venue_rounds insert must cast id and night_id to uuid explicitly',
+  );
+});
+
+test('syncPairCounts casts night_id on both sides of the union all', () => {
+  const repo2 = readSource('repo2.ts');
+  const insert = templateBodies(repo2).find((body) =>
+    body.includes('insert into venue_pair_counts'),
+  );
+
+  assert.ok(insert, 'repo2.ts should insert into venue_pair_counts');
+  assert.match(insert, /union all/i, 'the pair-counts insert uses a set operation');
+
+  // Only the branches feeding the INSERT matter. The CTE's WHERE clause also
+  // interpolates nightId but sits in a plain comparison where inference works.
+  const afterInsert = insert.slice(
+    insert.toLowerCase().indexOf('insert into venue_pair_counts'),
+  );
+  const nightIdInterpolations = [
+    ...afterInsert.matchAll(/\$\{([^{}]*)\}(\s*::\s*\w+)?/g),
+  ].filter((m) => m[1].trim().startsWith('nightId'));
+
+  assert.ok(nightIdInterpolations.length > 0, 'the insert should interpolate nightId');
+  assert.ok(
+    nightIdInterpolations.length >= 2,
+    'both union all branches should interpolate nightId',
+  );
+  for (const match of nightIdInterpolations) {
+    const cast = (match[2] ?? '').replace(/\s+/g, '');
+    assert.equal(
+      cast,
+      '::uuid',
+      `\${${match[1].trim()}} must be cast, because a bare parameter in a union all ` +
+        'branch is resolved to text before the INSERT target is consulted.',
+    );
+  }
+});
 
 const ROUNDS_TO_SIMULATE = 20;
 const COURTS_PER_ROUND = 4;
@@ -271,6 +446,7 @@ function updatePlayerHistory(
       player.lastOpponents = opponents.map((opponent) => opponent.id);
     }
   }
+}
 
 // ---------------------------------------------------------------------------
 // Outcome-level quality reporting (review report recommendation #5).
@@ -421,4 +597,3 @@ test('13-round large-pool rotation stays legal and diverse', () => {
   );
 });
 
-}
