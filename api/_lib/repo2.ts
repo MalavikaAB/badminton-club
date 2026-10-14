@@ -13,15 +13,20 @@ export async function syncNightGameCounts(sessionId: string, nightId: string): P
 export async function syncPairCounts(nightId: string): Promise<void> {
   const sql = db();
   await sql`delete from venue_pair_counts where night_id = ${nightId}`;
-  await sql`insert into venue_pair_counts (night_id, player_id, other_id, pair_count, opp_count)
-    select ${nightId}, a.player_id, b.player_id,
-    sum(case when a.team = b.team then 1 else 0 end),
-    sum(case when a.team <> b.team then 1 else 0 end)
+  await sql`with pair_totals as (
+    select a.player_id, b.player_id as other_id,
+    sum(case when a.team = b.team then 1 else 0 end) as pair_count,
+    sum(case when a.team <> b.team then 1 else 0 end) as opp_count
     from venue_round_players a
     join venue_round_players b on a.round_id = b.round_id
     and a.court_number = b.court_number and a.player_id < b.player_id
     where a.round_id in (select id from venue_rounds where night_id = ${nightId})
-    group by a.player_id, b.player_id`;
+    group by a.player_id, b.player_id
+  )
+  insert into venue_pair_counts (night_id, player_id, other_id, pair_count, opp_count)
+  select ${nightId}, player_id, other_id, pair_count, opp_count from pair_totals
+  union all
+  select ${nightId}, other_id, player_id, pair_count, opp_count from pair_totals`;
 }
 
 export async function loadCheckedInPlayers(sessionId: string, nightId: string | null): Promise<Player[]> {
@@ -98,4 +103,3 @@ export function toGameFormat(v: unknown): GameFormat | null {
   if (v === 'MENS_DOUBLES' || v === 'WOMENS_DOUBLES' || v === 'MIXED_DOUBLES' || v === 'OPEN_DOUBLES') return v;
   return null;
 }
-
