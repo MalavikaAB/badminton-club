@@ -971,8 +971,8 @@ function buildBestFormatCourts(
       0,
     );
     if (
-      repeatCount < bestRepeatCount ||
-      (repeatCount === bestRepeatCount && score < bestScore)
+      score < bestScore ||
+      (score === bestScore && repeatCount < bestRepeatCount)
     ) {
       best = courts;
       bestRepeatCount = repeatCount;

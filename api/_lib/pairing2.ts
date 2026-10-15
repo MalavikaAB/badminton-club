@@ -7,10 +7,13 @@ import type {
 /**
  * Historical partner/opponent weights.
  *
- * Historical partner and opponent repeats are penalised equally.
+ * Repeat partners receive a dominant penalty; opponent history remains
+ * meaningful but does not outweigh avoiding a repeated partnership.
  */
-const PARTNER_WEIGHT = 2.0;
-const OPPONENT_WEIGHT = PARTNER_WEIGHT;
+const PARTNER_WEIGHT = 1_000_000;
+const OPPONENT_WEIGHT = 2.0;
+const SHARED_COURT_WEIGHT = 10;
+const SAME_GENDER_SHARED_COURT_MULTIPLIER = 1.5;
 const BEGINNER_HIGHER_DIVISION_PENALTY = 250;
 
 export function relationshipRepeatPenalty(meetings: number): number {
@@ -24,7 +27,7 @@ export function relationshipRepeatPenalty(meetings: number): number {
 /**
  * Immediate-repeat penalties.
  *
- * These are deliberately much larger than historical-repeat costs.
+ * Immediate partner and opponent repeats receive additional penalties.
  *
  * The scheduler should strongly avoid:
  *
@@ -34,8 +37,8 @@ export function relationshipRepeatPenalty(meetings: number): number {
  * But they remain penalties rather than impossible states so that
  * a round can still be produced when the player pool is too small.
  */
-export const LAST_PARTNER_PENALTY = 1000;
-export const LAST_OPPONENT_PENALTY = LAST_PARTNER_PENALTY;
+export const LAST_PARTNER_PENALTY = 1_000_000;
+export const LAST_OPPONENT_PENALTY = 1000;
 
 export interface Split {
   teamA: Player[];
@@ -46,8 +49,7 @@ export interface Split {
 
 /**
  * Count previously used partner/opponent relationships in this split.
- * This is the primary pairing objective; historical repeat frequency and
- * other preferences are tie-breakers once the number of repeats is minimized.
+ * Used as a tie-breaker after the weighted cost is considered.
  */
 export function repeatCountOf(
   teamA: Player[],
@@ -56,14 +58,14 @@ export function repeatCountOf(
   let repeats = 0;
 
   if (
-    pairWith(teamA[0], teamA[1].id) > 0 ||
+    pairWith(teamA[0], teamA[1]) > 0 ||
     partneredLastRound(teamA[0], teamA[1])
   ) {
     repeats++;
   }
 
   if (
-    pairWith(teamB[0], teamB[1].id) > 0 ||
+    pairWith(teamB[0], teamB[1]) > 0 ||
     partneredLastRound(teamB[0], teamB[1])
   ) {
     repeats++;
@@ -76,7 +78,7 @@ export function repeatCountOf(
     [teamA[1], teamB[1]],
   ]) {
     if (
-      oppWith(a, b.id) > 0 ||
+      oppWith(a, b) > 0 ||
       opposedLastRound(a, b)
     ) {
       repeats++;
@@ -91,11 +93,12 @@ export function repeatCountOf(
  */
 export function pairWith(
   player: Player,
-  otherId: string,
+  other: Player,
 ): number {
-  return player.pairCount[
-    otherId
-  ] ?? 0;
+  return Math.max(
+    player.pairCount[other.id] ?? 0,
+    other.pairCount[player.id] ?? 0,
+  );
 }
 
 /**
@@ -103,11 +106,16 @@ export function pairWith(
  */
 export function oppWith(
   player: Player,
-  otherId: string,
+  other: Player,
 ): number {
-  return player.oppCount[
-    otherId
-  ] ?? 0;
+  return Math.max(
+    player.oppCount[other.id] ?? 0,
+    other.oppCount[player.id] ?? 0,
+  );
+}
+
+function sharedCourtMeetings(a: Player, b: Player): number {
+  return pairWith(a, b) + oppWith(a, b);
 }
 
 export function isMale(
@@ -186,8 +194,8 @@ export function courtCost(
   cost +=
     PARTNER_WEIGHT *
     (
-      relationshipRepeatPenalty(pairWith(teamA[0], teamA[1].id)) +
-      relationshipRepeatPenalty(pairWith(teamB[0], teamB[1].id))
+      relationshipRepeatPenalty(pairWith(teamA[0], teamA[1])) +
+      relationshipRepeatPenalty(pairWith(teamB[0], teamB[1]))
     );
 
   /**
@@ -198,11 +206,24 @@ export function courtCost(
   cost +=
     OPPONENT_WEIGHT *
     (
-      relationshipRepeatPenalty(oppWith(teamA[0], teamB[0].id)) +
-      relationshipRepeatPenalty(oppWith(teamA[0], teamB[1].id)) +
-      relationshipRepeatPenalty(oppWith(teamA[1], teamB[0].id)) +
-      relationshipRepeatPenalty(oppWith(teamA[1], teamB[1].id))
+      relationshipRepeatPenalty(oppWith(teamA[0], teamB[0])) +
+      relationshipRepeatPenalty(oppWith(teamA[0], teamB[1])) +
+      relationshipRepeatPenalty(oppWith(teamA[1], teamB[0])) +
+      relationshipRepeatPenalty(oppWith(teamA[1], teamB[1]))
     );
+
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      const meetings = sharedCourtMeetings(players[i], players[j]);
+      if (meetings === 0) continue;
+
+      const genderWeight =
+        players[i].gender === players[j].gender
+          ? SAME_GENDER_SHARED_COURT_MULTIPLIER
+          : 1;
+      cost += SHARED_COURT_WEIGHT * genderWeight * meetings ** 2;
+    }
+  }
 
   /**
    * Immediate partner repeats.
@@ -741,8 +762,8 @@ export function buildCourtFromPool(
           }
 
           if (
-            split.repeatCount < bestRepeatCount ||
-            (split.repeatCount === bestRepeatCount && split.cost < bestCost)
+            split.cost < bestCost ||
+            (split.cost === bestCost && split.repeatCount < bestRepeatCount)
           ) {
             bestRepeatCount =
               split.repeatCount;
@@ -864,8 +885,8 @@ export function buildMixedCourt(
           }
 
           if (
-            split.repeatCount < bestRepeatCount ||
-            (split.repeatCount === bestRepeatCount && split.cost < bestCost)
+            split.cost < bestCost ||
+            (split.cost === bestCost && split.repeatCount < bestRepeatCount)
           ) {
             bestRepeatCount =
               split.repeatCount;

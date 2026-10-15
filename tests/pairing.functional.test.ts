@@ -172,7 +172,36 @@ test('pairing scores repeated relationships with increasing penalties', () => {
   );
 });
 
-test('historical opponent repeats have the same weight as partner repeats', () => {
+test('shared-court cost grows quadratically and is higher for same-gender pairs', () => {
+  const sharedCourtCost = (meetings: number, otherGender: 'MALE' | 'FEMALE') => {
+    const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((id, index) =>
+      makePlayer(
+        id,
+        id,
+        index === 0 ? 'MALE' : index === 1 ? otherGender : 'FEMALE',
+        '10',
+        new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+        0,
+        0,
+      ),
+    );
+    const baseline = courtCost([a, c], [b, d]);
+
+    // A single-sided count matches the canonical database representation.
+    a.oppCount[b.id] = meetings;
+    const withHistory = courtCost([a, c], [b, d]);
+    return withHistory - baseline - 2 * relationshipRepeatPenalty(meetings);
+  };
+
+  const sameGenderOnce = sharedCourtCost(1, 'MALE');
+  const sameGenderTwice = sharedCourtCost(2, 'MALE');
+  const mixedGenderOnce = sharedCourtCost(1, 'FEMALE');
+
+  assert.equal(sameGenderTwice, sameGenderOnce * 4);
+  assert.equal(sameGenderOnce, mixedGenderOnce * 1.5);
+});
+
+test('repeat partners are avoided when a legal alternative exists', () => {
   const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((id, index) =>
     makePlayer(
       id,
@@ -184,31 +213,26 @@ test('historical opponent repeats have the same weight as partner repeats', () =
       0,
     ),
   );
+  a.pairCount[b.id] = 1;
+  a.oppCount[b.id] = 3;
 
-  for (const meetings of [1, 2, 3, 5]) {
-    a.pairCount[b.id] = meetings;
-    b.pairCount[a.id] = meetings;
-    const partnerRepeatCost = courtCost([a, b], [c, d]);
-    delete a.pairCount[b.id];
-    delete b.pairCount[a.id];
+  const split = bestSplit([a, b, c, d], 'MENS_DOUBLES');
+  const partneredPairs = [
+    [split.teamA[0].id, split.teamA[1].id].sort().join(),
+    [split.teamB[0].id, split.teamB[1].id].sort().join(),
+  ];
 
-    a.oppCount[c.id] = meetings;
-    c.oppCount[a.id] = meetings;
-    const opponentRepeatCost = courtCost([a, b], [c, d]);
-    delete a.oppCount[c.id];
-    delete c.oppCount[a.id];
+  assert(!partneredPairs.includes(['a', 'b'].join()));
+});
 
-    assert.equal(opponentRepeatCost, partnerRepeatCost, `${meetings} prior meetings`);
-  }
+test('pair-count history is loaded for both players in every stored pair', () => {
+  const repo2 = readSource('repo2.ts');
 
-  a.lastPartner = b.id;
-  const immediatePartnerRepeatCost = courtCost([a, b], [c, d]);
-  a.lastPartner = null;
-
-  a.lastOpponents = [c.id];
-  const immediateOpponentRepeatCost = courtCost([a, b], [c, d]);
-
-  assert.equal(immediateOpponentRepeatCost, immediatePartnerRepeatCost);
+  assert.match(
+    repo2,
+    /pc2\.player_id\s*=\s*p\.id\s+or\s+pc2\.other_id\s*=\s*p\.id/i,
+    'the history query should return a pair for either participant',
+  );
 });
 
 test('best split prefers two first-time partners over one heavily repeated partnership', () => {

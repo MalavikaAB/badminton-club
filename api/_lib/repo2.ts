@@ -32,9 +32,14 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
     coalesce(lp.partner, '') as last_partner, coalesce(lp.opps, '{}') as last_opps
     from venue_check_ins ci
     join players p on p.id = ci.player_id
-    left join lateral (select coalesce(array_agg(pc2.other_id || ':' || pc2.pair_count), '{}') as pairs,
-    coalesce(array_agg(pc2.other_id || ':' || pc2.opp_count), '{}') as opps
-    from venue_pair_counts pc2 where pc2.night_id = ${nightId} and pc2.player_id = p.id) pc on true
+    left join lateral (select coalesce(array_agg(
+      (case when pc2.player_id = p.id then pc2.other_id else pc2.player_id end)::text || ':' || pc2.pair_count
+    ), '{}') as pairs,
+    coalesce(array_agg(
+      (case when pc2.player_id = p.id then pc2.other_id else pc2.player_id end)::text || ':' || pc2.opp_count
+    ), '{}') as opps
+    from venue_pair_counts pc2 where pc2.night_id = ${nightId}
+    and (pc2.player_id = p.id or pc2.other_id = p.id)) pc on true
     left join lateral (select
     (select o.player_id::text from venue_round_players o
     where o.round_id = rp.round_id and o.court_number is not distinct from rp.court_number
