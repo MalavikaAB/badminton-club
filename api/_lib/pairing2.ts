@@ -7,12 +7,10 @@ import type {
 /**
  * Historical partner/opponent weights.
  *
- * Repeating an old partner is considered worse than repeating
- * an old opponent because partner variety is usually more noticeable
- * in a social club rotation.
+ * Historical partner and opponent repeats are penalised equally.
  */
 const PARTNER_WEIGHT = 2.0;
-const OPPONENT_WEIGHT = 1.0;
+const OPPONENT_WEIGHT = PARTNER_WEIGHT;
 const BEGINNER_HIGHER_DIVISION_PENALTY = 250;
 
 export function relationshipRepeatPenalty(meetings: number): number {
@@ -37,7 +35,7 @@ export function relationshipRepeatPenalty(meetings: number): number {
  * a round can still be produced when the player pool is too small.
  */
 export const LAST_PARTNER_PENALTY = 1000;
-export const LAST_OPPONENT_PENALTY = 100;
+export const LAST_OPPONENT_PENALTY = LAST_PARTNER_PENALTY;
 
 export interface Split {
   teamA: Player[];

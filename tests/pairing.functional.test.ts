@@ -4,7 +4,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { bestSplit, relationshipRepeatPenalty } from '../api/_lib/pairing2.js';
+import { bestSplit, courtCost, relationshipRepeatPenalty } from '../api/_lib/pairing2.js';
 import { generateRound } from '../api/_lib/scheduler.js';
 import { qualityReport, summarisePairings } from '../api/_lib/pairingQuality.js';
 import { makePlayer, type Player } from '../api/_lib/types.js';
@@ -170,6 +170,45 @@ test('pairing scores repeated relationships with increasing penalties', () => {
     [0, 1, 2, 3, 4, 5].map(relationshipRepeatPenalty),
     [0, 10, 30, 60, 100, 150],
   );
+});
+
+test('historical opponent repeats have the same weight as partner repeats', () => {
+  const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((id, index) =>
+    makePlayer(
+      id,
+      id,
+      'MALE',
+      '10',
+      new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+      0,
+      0,
+    ),
+  );
+
+  for (const meetings of [1, 2, 3, 5]) {
+    a.pairCount[b.id] = meetings;
+    b.pairCount[a.id] = meetings;
+    const partnerRepeatCost = courtCost([a, b], [c, d]);
+    delete a.pairCount[b.id];
+    delete b.pairCount[a.id];
+
+    a.oppCount[c.id] = meetings;
+    c.oppCount[a.id] = meetings;
+    const opponentRepeatCost = courtCost([a, b], [c, d]);
+    delete a.oppCount[c.id];
+    delete c.oppCount[a.id];
+
+    assert.equal(opponentRepeatCost, partnerRepeatCost, `${meetings} prior meetings`);
+  }
+
+  a.lastPartner = b.id;
+  const immediatePartnerRepeatCost = courtCost([a, b], [c, d]);
+  a.lastPartner = null;
+
+  a.lastOpponents = [c.id];
+  const immediateOpponentRepeatCost = courtCost([a, b], [c, d]);
+
+  assert.equal(immediateOpponentRepeatCost, immediatePartnerRepeatCost);
 });
 
 test('best split prefers two first-time partners over one heavily repeated partnership', () => {
