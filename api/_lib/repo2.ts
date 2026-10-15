@@ -24,9 +24,9 @@ export async function syncPairCounts(nightId: string): Promise<void> {
     group by a.player_id, b.player_id
   )
   insert into venue_pair_counts (night_id, player_id, other_id, pair_count, opp_count)
-  select ${nightId}, player_id, other_id, pair_count, opp_count from pair_totals
+  select ${nightId}::uuid, player_id, other_id, pair_count, opp_count from pair_totals
   union all
-  select ${nightId}, other_id, player_id, pair_count, opp_count from pair_totals`;
+  select ${nightId}::uuid, other_id, player_id, pair_count, opp_count from pair_totals`;
 }
 
 export async function loadCheckedInPlayers(sessionId: string, nightId: string | null): Promise<Player[]> {
