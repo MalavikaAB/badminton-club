@@ -147,38 +147,19 @@ test('inserting a round never relies on server-side type inference for night_id'
   );
 });
 
-test('syncPairCounts casts night_id on both sides of the union all', () => {
+test('syncPairCounts inserts pair counts without a set operation', () => {
   const repo2 = readSource('repo2.ts');
   const insert = templateBodies(repo2).find((body) =>
     body.includes('insert into venue_pair_counts'),
   );
 
   assert.ok(insert, 'repo2.ts should insert into venue_pair_counts');
-  assert.match(insert, /union all/i, 'the pair-counts insert uses a set operation');
-
-  // Only the branches feeding the INSERT matter. The CTE's WHERE clause also
-  // interpolates nightId but sits in a plain comparison where inference works.
-  const afterInsert = insert.slice(
-    insert.toLowerCase().indexOf('insert into venue_pair_counts'),
+  assert.match(
+    insert,
+    /select\s*\$\{nightId\}\s*,\s*a\.player_id/i,
+    'the direct pair-count insert should select from its aggregate query',
   );
-  const nightIdInterpolations = [
-    ...afterInsert.matchAll(/\$\{([^{}]*)\}(\s*::\s*\w+)?/g),
-  ].filter((m) => m[1].trim().startsWith('nightId'));
-
-  assert.ok(nightIdInterpolations.length > 0, 'the insert should interpolate nightId');
-  assert.ok(
-    nightIdInterpolations.length >= 2,
-    'both union all branches should interpolate nightId',
-  );
-  for (const match of nightIdInterpolations) {
-    const cast = (match[2] ?? '').replace(/\s+/g, '');
-    assert.equal(
-      cast,
-      '::uuid',
-      `\${${match[1].trim()}} must be cast, because a bare parameter in a union all ` +
-        'branch is resolved to text before the INSERT target is consulted.',
-    );
-  }
+  assert.doesNotMatch(insert, /union\s+all/i);
 });
 
 const ROUNDS_TO_SIMULATE = 20;
@@ -596,4 +577,3 @@ test('13-round large-pool rotation stays legal and diverse', () => {
       `games=${report.gamesPlayedMin}-${report.gamesPlayedMax} (sd=${report.gamesPlayedStdDev.toFixed(2)})`,
   );
 });
-

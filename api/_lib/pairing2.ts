@@ -15,19 +15,6 @@ const PARTNER_WEIGHT = 2.0;
 const OPPONENT_WEIGHT = 1.0;
 const BEGINNER_HIGHER_DIVISION_PENALTY = 250;
 
-/**
- * Weight applied to a pair of players who have already shared a court
- * together, regardless of whether they were partners or opponents.
- *
- * Partner/opponent penalties on their own miss the case where the exact
- * same four people are re-formed on a court with a different team split:
- * a former partner now facing you registers no opponent repeat, and a
- * former opponent now partnering you registers no partner repeat. The
- * court-mate term closes that gap so a repeated foursome is discouraged
- * even when the partners/opponents are swapped around.
- */
-const COURT_MATE_WEIGHT = 2.0;
-
 export function relationshipRepeatPenalty(meetings: number): number {
   if (meetings <= 0) return 0;
   if (meetings === 1) return 10;
@@ -125,24 +112,6 @@ export function oppWith(
   ] ?? 0;
 }
 
-/**
- * How many times two players have shared a court together, counting both
- * the times they were partners and the times they were opponents.
- *
- * Any shared court contributes to this total, so it captures "these two
- * have played on the same court before" irrespective of which side of
- * the net they were on. Used to avoid re-forming the same group of four.
- */
-export function courtMateWith(
-  player: Player,
-  otherId: string,
-): number {
-  return (
-    pairWith(player, otherId) +
-    oppWith(player, otherId)
-  );
-}
-
 export function isMale(
   player: Player,
 ): boolean {
@@ -166,54 +135,6 @@ export function courtRepeatCountOf(
   court: CourtAssignment,
 ): number {
   return repeatCountOf(court.teamA, court.teamB);
-}
-
-/**
- * Count how many of the six pairs among the four players on a court have
- * already shared a court together — as partners OR opponents.
- *
- * This is the "same four people again" metric. A value of 0 means the
- * foursome is completely fresh (nobody has played with or against anyone
- * else on this court before); 6 means every pair has met before. It is a
- * superset of the partner/opponent repeat counts, so minimising it first
- * guarantees the exact same combination of four is not re-formed even when
- * the team split is changed.
- */
-export function courtMateRepeatCount(
-  teamA: Player[],
-  teamB: Player[],
-): number {
-  if (
-    teamA.length !== 2 ||
-    teamB.length !== 2
-  ) {
-    return 0;
-  }
-
-  const allFour = [
-    teamA[0],
-    teamA[1],
-    teamB[0],
-    teamB[1],
-  ];
-
-  let repeats = 0;
-
-  for (let i = 0; i < allFour.length; i++) {
-    for (let j = i + 1; j < allFour.length; j++) {
-      if (courtMateWith(allFour[i], allFour[j].id) > 0) {
-        repeats += 1;
-      }
-    }
-  }
-
-  return repeats;
-}
-
-export function courtMateRepeatCountOf(
-  court: CourtAssignment,
-): number {
-  return courtMateRepeatCount(court.teamA, court.teamB);
 }
 
 /**
@@ -284,33 +205,6 @@ export function courtCost(
       relationshipRepeatPenalty(oppWith(teamA[1], teamB[0].id)) +
       relationshipRepeatPenalty(oppWith(teamA[1], teamB[1].id))
     );
-
-  /**
-   * Court-mate repeats.
-   *
-   * Every pair among the four players who has already shared a court is
-   * penalised, whether they were partners or opponents. This is what stops
-   * the exact same four people from being re-formed on a court with a
-   * different team split (see COURT_MATE_WEIGHT above).
-   */
-  {
-    const allFour = [
-      teamA[0],
-      teamA[1],
-      teamB[0],
-      teamB[1],
-    ];
-
-    for (let i = 0; i < allFour.length; i++) {
-      for (let j = i + 1; j < allFour.length; j++) {
-        cost +=
-          COURT_MATE_WEIGHT *
-          relationshipRepeatPenalty(
-            courtMateWith(allFour[i], allFour[j].id),
-          );
-      }
-    }
-  }
 
   /**
    * Immediate partner repeats.
