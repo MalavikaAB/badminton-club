@@ -230,10 +230,7 @@ function selectBestPlayers(
       (p) => !selectedIds.has(p.id),
     );
 
-    const currentScore = scoreSelection(selected);
-
-    let bestScore = currentScore;
-    let bestSelection: Player[] | null = null;
+    let bestSelection = selected;
 
     for (const incoming of waiting) {
       for (let i = 0; i < selected.length; i++) {
@@ -243,16 +240,13 @@ function selectBestPlayers(
         next[i] = incoming;
         if (!canFieldCourtCount(next, requiredPlayers / 4)) continue;
 
-        const score = scoreSelection(next);
-
-        if (score > bestScore) {
-          bestScore = score;
+        if (isBetterSelection(next, bestSelection)) {
           bestSelection = next;
         }
       }
     }
 
-    if (bestSelection) {
+    if (bestSelection !== selected) {
       selected = bestSelection;
       improved = true;
     }
@@ -269,6 +263,23 @@ function selectBestPlayers(
    * determine the actual court/team arrangement.
    */
   return selected.sort(comparePriority);
+}
+
+function isBetterSelection(candidate: Player[], current: Player[]): boolean {
+  const candidatePriority = [...candidate].sort(comparePriority);
+  const currentPriority = [...current].sort(comparePriority);
+
+  for (let index = 0; index < candidatePriority.length; index++) {
+    const priority = comparePriority(
+      candidatePriority[index],
+      currentPriority[index],
+    );
+    if (priority !== 0) {
+      return priority < 0;
+    }
+  }
+
+  return scoreSelection(candidate) > scoreSelection(current);
 }
 
 function canFieldCourtCount(
@@ -767,8 +778,8 @@ export function renumberCourts(
  *
  * Priority order:
  *
- * 1. Longest waiting
- * 2. Fewest games played
+ * 1. Fewest games played
+ * 2. Longest waiting
  * 3. Earlier check-in
  * 4. Name
  *
@@ -779,22 +790,22 @@ export function comparePriority(
   b: Player,
 ): number {
   if (
-    a.roundsWaiting !==
-    b.roundsWaiting
-  ) {
-    return (
-      b.roundsWaiting -
-      a.roundsWaiting
-    );
-  }
-
-  if (
     a.gamesPlayed !==
     b.gamesPlayed
   ) {
     return (
       a.gamesPlayed -
       b.gamesPlayed
+    );
+  }
+
+  if (
+    a.roundsWaiting !==
+    b.roundsWaiting
+  ) {
+    return (
+      b.roundsWaiting -
+      a.roundsWaiting
     );
   }
 

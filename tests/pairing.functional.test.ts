@@ -225,6 +225,54 @@ test('repeat partners are avoided when a legal alternative exists', () => {
   assert(!partneredPairs.includes(['a', 'b'].join()));
 });
 
+test('a player with fewer games takes priority over a longer-waiting player', () => {
+  const players = [
+    makePlayer('new-player', 'New Player', 'MALE', '10', '2026-01-01T00:00:00.000Z', 0, 0),
+    ...['a', 'b', 'c', 'd'].map((id, index) =>
+      makePlayer(
+        id,
+        id,
+        'MALE',
+        '10',
+        new Date(Date.UTC(2026, 0, 1, 0, 0, index + 1)).toISOString(),
+        1,
+        3,
+      ),
+    ),
+  ];
+
+  const allocation = generateRound(1, players, null, false, 1);
+  const assignedIds = new Set(allocation.courts.flatMap((court) =>
+    court.players.map((player) => player.id),
+  ));
+
+  assert(assignedIds.has('new-player'));
+});
+
+test('rounds waited break ties between players with equal games played', () => {
+  const players = [
+    makePlayer('long-wait', 'Long Wait', 'MALE', '10', '2026-01-01T00:00:00.000Z', 0, 3),
+    ...['a', 'b', 'c', 'd'].map((id, index) =>
+      makePlayer(
+        id,
+        id,
+        'MALE',
+        '10',
+        new Date(Date.UTC(2026, 0, 1, 0, 0, index + 1)).toISOString(),
+        0,
+        0,
+      ),
+    ),
+  ];
+
+  const allocation = generateRound(1, players, null, false, 1);
+  const assignedIds = new Set(allocation.courts.flatMap((court) =>
+    court.players.map((player) => player.id),
+  ));
+
+  assert(assignedIds.has('long-wait'));
+});
+
 test('pair-count history is loaded for both players in every stored pair', () => {
   const repo2 = readSource('repo2.ts');
 
