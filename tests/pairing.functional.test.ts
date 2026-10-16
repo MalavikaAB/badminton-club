@@ -225,6 +225,30 @@ test('repeat partners are avoided when a legal alternative exists', () => {
   assert(!partneredPairs.includes(['a', 'b'].join()));
 });
 
+test('game totals do not affect selection when wait rounds are equal', () => {
+  const players = [
+    makePlayer('many-games', 'Many Games', 'MALE', '10', '2026-01-01T00:00:00.000Z', 10, 0),
+    ...['a', 'b', 'c', 'd'].map((id, index) =>
+      makePlayer(
+        id,
+        id,
+        'MALE',
+        '10',
+        new Date(Date.UTC(2026, 0, 1, 0, 0, index + 1)).toISOString(),
+        0,
+        0,
+      ),
+    ),
+  ];
+
+  const allocation = generateRound(1, players, null, false, 1);
+  const assignedIds = new Set(allocation.courts.flatMap((court) =>
+    court.players.map((player) => player.id),
+  ));
+
+  assert(assignedIds.has('many-games'));
+});
+
 test('pair-count history is loaded for both players in every stored pair', () => {
   const repo2 = readSource('repo2.ts');
 
@@ -376,7 +400,7 @@ test('20-round partner and opponent rotation works with divisions together and s
           }
 
           assert.equal(assignedIds.size, players.length, 'all dummy players should be assigned');
-          updatePlayerHistory(allocation.courts);
+          updatePlayerHistory(allocation.courts, allocation.waiting);
         }
 
         assert.equal(immediatePartnerRepeats, 0, 'partners should change between consecutive rounds');
@@ -464,6 +488,7 @@ function repeatedMeetings(
 
 function updatePlayerHistory(
   courts: ReturnType<typeof generateRound>['courts'],
+  waiting: Player[] = [],
 ): void {
   for (const court of courts) {
     for (const team of [court.teamA, court.teamB]) {
@@ -489,6 +514,10 @@ function updatePlayerHistory(
       player.lastPartner = team.find((member) => member.id !== player.id)!.id;
       player.lastOpponents = opponents.map((opponent) => opponent.id);
     }
+  }
+
+  for (const player of waiting) {
+    player.roundsWaiting++;
   }
 }
 
@@ -608,7 +637,7 @@ test('13-round large-pool rotation stays legal and diverse', () => {
       }
     }
 
-    updatePlayerHistory(allocation.courts);
+    updatePlayerHistory(allocation.courts, allocation.waiting);
   }
 
   const report = qualityReport(players);

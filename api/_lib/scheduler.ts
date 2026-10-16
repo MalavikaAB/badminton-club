@@ -34,7 +34,6 @@ const MAX_SELECTION_PASSES = 20;
  */
 const WEIGHTS = {
   roundsWaiting: 100,
-  gamesPlayed: 15,
   checkedIn: 0.01,
 
   immediatePartner: 60,
@@ -323,21 +322,17 @@ function legalCourtCapacity(
  *
  * Higher = better.
  *
- * The score intentionally combines several objectives instead of
- * making waiting time the only consideration.
+ * The score gives wait rounds priority while retaining pairing and lineup
+ * quality as secondary considerations.
  */
 function scoreSelection(players: Player[]): number {
   let score = 0;
 
   /**
-   * Basic fairness:
-   *
    * More rounds waiting = stronger reason to play.
-   * Fewer games played = stronger reason to play.
    */
   for (const player of players) {
     score += player.roundsWaiting * WEIGHTS.roundsWaiting;
-    score -= player.gamesPlayed * WEIGHTS.gamesPlayed;
 
     /**
      * Earlier check-in gets a tiny deterministic preference.
@@ -768,9 +763,8 @@ export function renumberCourts(
  * Priority order:
  *
  * 1. Longest waiting
- * 2. Fewest games played
- * 3. Earlier check-in
- * 4. Name
+ * 2. Earlier check-in
+ * 3. Name
  *
  * This keeps the externally visible queue deterministic.
  */
@@ -785,16 +779,6 @@ export function comparePriority(
     return (
       b.roundsWaiting -
       a.roundsWaiting
-    );
-  }
-
-  if (
-    a.gamesPlayed !==
-    b.gamesPlayed
-  ) {
-    return (
-      a.gamesPlayed -
-      b.gamesPlayed
     );
   }
 

@@ -381,14 +381,7 @@ async function handleCheckIns(
           on conflict (session_id, player_id) do update set checked_in_at = now()`,
         ensureOpenNight(sessionId),
       ]);
-      await sql`with m as (
-          select coalesce(min(g.games_played), 0) as m
-          from players g join venue_check_ins ci on ci.player_id = g.id
-          where ci.session_id = ${sessionId} and g.active = true
-        )
-        update players set rounds_waiting = 0,
-          games_played = (select case when players.games_played < m.m then m.m else players.games_played end from m)
-        where id = ${playerId}`;
+      await sql`update players set rounds_waiting = 0 where id = ${playerId}`;
       sendJson(res, 200, { ok: true });
       return;
     }
