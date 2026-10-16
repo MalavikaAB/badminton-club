@@ -592,6 +592,34 @@ async function loadStatistics() {
           <tbody>${rows}</tbody>
         </table>
       </div>`;
+
+            // Build the sit-out tally summary table
+            const tallyRows = players.map(player => {
+              const seq = player.sits.map(v => v === 1 ? '1' : '0').join('');
+              const maxStreak = player.maxConsecutiveSits > 0 ? player.maxConsecutiveSits : '—';
+              const totalSits = player.totalSits == null ? '—' : player.totalSits;
+              return `<tr>
+        <td style="white-space:nowrap;">${escapeHtml(player.name)}</td>
+        <td class="statistics-games">${Number(player.gamesPlayed) || 0}</td>
+        <td>${totalSits}</td>
+        <td>${maxStreak}</td>
+        <td style="font-family:'DM Mono',monospace;">${seq}</td>
+      </tr>`;
+            }).join('');
+
+            const tallyTable = `
+      <div class="statistics-table-scroll" role="region" aria-label="Player sit-out tally; 1 = played, 0 = sat out" tabindex="0">
+        <table class="statistics-table">
+          <caption class="visually-hidden">Per-player sit-out tally: 1 means played, 0 means sat out. Shows total sits, longest consecutive sit streak, and the 1/0 sequence per round.</caption>
+          <thead><tr><th scope="col">Player</th><th scope="col" class="statistics-games">Games</th><th scope="col">Total sits</th><th scope="col">Max consecutive</th><th scope="col">1/0 sequence</th></tr></thead>
+          <tbody>${tallyRows}</tbody>
+        </table>
+      </div>`;
+
+            const legend = document.createElement('p');
+            legend.className = 'statistics-legend';
+            legend.innerHTML = '<strong>Sit-out tally per player:</strong> 1 = played, 0 = sat out. Shows total times sat out, longest consecutive sit streak, and the round-by-round 1/0 sequence.';
+            matrix.parentNode.insertBefore(tallyTable, matrix.nextSibling);
   } catch (loadError) {
     if (requestId !== statisticsRequest) return;
     console.error('Could not load session statistics:', loadError);

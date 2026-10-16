@@ -448,7 +448,7 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
     return;
   }
 
-  const [roundRows, playerRows, relationshipRows] = await Promise.all([
+  const [roundRows, playerRows, relationshipRows, roundParticipationRows] = await Promise.all([
     sql`select count(*)::int as rounds_played from venue_rounds where night_id = ${nightId}`,
     sql`select p.id, p.name, p.gender, p.division, count(rp.player_id)::int as games_played
       from players p
@@ -479,6 +479,12 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
         and a.team in ('A', 'B')
         and b.team in ('A', 'B')
       group by a.player_id, b.player_id`,
+    sql`select r.round_number, rp.player_id
+      from venue_rounds r
+      join venue_nights n on n.id = r.night_id
+      left join venue_round_players rp on rp.round_id = r.id
+      where n.session_id = ${sessionId} and n.status = 'OPEN'
+      order by r.round_number`,
   ]);
 
   const partnersByPlayer = new Map<string, Record<string, number>>();
@@ -494,18 +500,63 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
     opponentsByPlayer.set(playerId, opponents);
   }
 
-  sendJson(res, 200, {
-    nightId,
-    roundsPlayed: Number((roundRows as any[])[0]?.rounds_played ?? 0),
-    players: (playerRows as any[]).map((row) => ({
-      id: String(row.id),
+  // Build set of round numbers and map of playerId -> Set of round numbers they played in
+  const allRoundNumbers = new Set<number>();
+  const playerPlayedRounds = new Map<string, Set<number>>();
+  for (const row of roundParticipationRows as any[]) {
+    const roundNumber = Number(row.round_number);
+    if (roundNumber <= 0) continue;
+    allRoundNumbers.add(roundNumber);
+    const playerId = row.player_id ? String(row.player_id) : null;
+    if (playerId) {
+      if (!playerPlayedRounds.has(playerId)) playerPlayedRounds.set(playerId, new Set());
+      playerPlayedRounds.get(playerId).add(roundNumber);
+    }
+  }
+
+  // Compute per-player sit-out stats
+  const playersWithStats = (playerRows as any[]).map((row) => {
+    const playerId = String(row.id);
+    const playedRounds = playerPlayedRounds.get(playerId) ?? new Set<number>();
+    const gamesPlayed = Number(row.games_played) || 0;
+    const roundsPlayed = Number((roundRows as any[])[0]?.rounds_played ?? 0);
+    const totalSits = roundsPlayed - gamesPlayed;
+
+    // Build 1/0 tally per round: 1 = played, 0 = sat out
+    const sits: number[] = [];
+    let maxConsecutiveSits = 0;
+    let currentStreak = 0;
+    for (let round = 1; round <= roundsPlayed; round++) {
+      const played = playedRounds.has(round) ? 1 : 0;
+      sits.push(played);
+      if (played === 0) {
+        currentStreak++;
+        if (currentStreak > maxConsecutiveSits) {
+          maxConsecutiveSits = currentStreak;
+        }
+      } else {
+        currentStreak = 0;
+      }
+    }
+
+    return {
+      id: playerId,
       name: row.name,
       gender: row.gender,
       division: row.division,
-      gamesPlayed: Number(row.games_played),
-      partners: partnersByPlayer.get(String(row.id)) ?? {},
-      opponents: opponentsByPlayer.get(String(row.id)) ?? {},
-    })),
+      gamesPlayed,
+      partners: partnersByPlayer.get(playerId) ?? {},
+      opponents: opponentsByPlayer.get(playerId) ?? {},
+      totalSits,
+      maxConsecutiveSits,
+      sits,
+    };
+  });
+
+  sendJson(res, 200, {
+    nightId,
+    roundsPlayed: Number((roundRows as any[])[0]?.rounds_played ?? 0),
+    players: playersWithStats,
   });
 }
 

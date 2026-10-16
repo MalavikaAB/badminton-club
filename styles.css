@@ -157,6 +157,7 @@ select { appearance:none; padding-right:38px; background-image:linear-gradient(4
 .statistics-session-picker + .secondary-button { min-height:42px; }
 .statistics-summary { color:var(--muted); font:12px 'DM Mono',monospace; margin:0 0 14px; }
 .statistics-legend { color:var(--muted); font:11px 'DM Mono',monospace; margin:0 0 10px; }
+.statistics-tally-section { margin-top:18px; padding-top:18px; border-top:1px solid var(--line); }
 .statistics-matrix { max-width:100%; }
 .statistics-table-scroll { max-width:100%; overflow:auto; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
 .statistics-table { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; font:12px 'DM Mono',monospace; }
