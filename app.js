@@ -619,7 +619,9 @@ async function loadStatistics() {
             const legend = document.createElement('p');
             legend.className = 'statistics-legend';
             legend.innerHTML = '<strong>Sit-out tally per player:</strong> 1 = played, 0 = sat out. Shows total times sat out, longest consecutive sit streak, and the round-by-round 1/0 sequence.';
-            matrix.parentNode.insertBefore(tallyTable, matrix.nextSibling);
+            const tallyContainer = document.createElement('div');
+            tallyContainer.innerHTML = tallyTable;
+            matrix.parentNode.insertBefore(tallyContainer.firstChild, matrix.nextSibling);
   } catch (loadError) {
     if (requestId !== statisticsRequest) return;
     console.error('Could not load session statistics:', loadError);
