@@ -595,7 +595,7 @@ async function loadStatistics() {
 
             // Build the sit-out tally summary table
             const tallyRows = players.map(player => {
-              const seq = player.sits.map(v => v === 1 ? '1' : '0').join('');
+              const seq = player.sits.map(v => v === 1 ? '1' : v === 0 ? '0' : 'x').join('');
               const maxStreak = player.maxConsecutiveSits > 0 ? player.maxConsecutiveSits : '—';
               const totalSits = player.totalSits == null ? '—' : player.totalSits;
               return `<tr>
@@ -608,17 +608,17 @@ async function loadStatistics() {
             }).join('');
 
             const tallyTable = `
-      <div class="statistics-table-scroll" role="region" aria-label="Player sit-out tally; 1 = played, 0 = sat out" tabindex="0">
+      <div class="statistics-table-scroll" role="region" aria-label="Player sit-out tally; 1 = played, 0 = sat out, x = had not arrived yet" tabindex="0">
         <table class="statistics-table">
-          <caption class="visually-hidden">Per-player sit-out tally: 1 means played, 0 means sat out. Shows total sits, longest consecutive sit streak, and the 1/0 sequence per round.</caption>
-          <thead><tr><th scope="col">Player</th><th scope="col" class="statistics-games">Games</th><th scope="col">Total sits</th><th scope="col">Max consecutive</th><th scope="col">1/0 sequence</th></tr></thead>
+          <caption class="visually-hidden">Per-player sit-out tally: 1 means played, 0 means sat out, x means had not arrived yet. Shows total sits, longest consecutive sit streak, and the round-by-round sequence per round.</caption>
+          <thead><tr><th scope="col">Player</th><th scope="col" class="statistics-games">Games</th><th scope="col">Total sits</th><th scope="col">Max consecutive</th><th scope="col">1/0/x sequence</th></tr></thead>
           <tbody>${tallyRows}</tbody>
         </table>
       </div>`;
 
             const legend = document.createElement('p');
             legend.className = 'statistics-legend';
-            legend.innerHTML = '<strong>Sit-out tally per player:</strong> 1 = played, 0 = sat out. Shows total times sat out, longest consecutive sit streak, and the round-by-round 1/0 sequence.';
+            legend.innerHTML = '<strong>Sit-out tally per player:</strong> 1 = played, 0 = sat out, x = had not arrived yet. Shows total times sat out, longest consecutive sit streak, and the round-by-round sequence.';
             const tallyContainer = document.createElement('div');
             tallyContainer.innerHTML = tallyTable;
             matrix.parentNode.appendChild(legend);

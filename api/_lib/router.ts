@@ -448,7 +448,7 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
     return;
   }
 
-  const [roundRows, playerRows, relationshipRows, roundParticipationRows] = await Promise.all([
+  const [roundRows, playerRows, relationshipRows, roundParticipationRows, checkInRows] = await Promise.all([
     sql`select count(*)::int as rounds_played from venue_rounds where night_id = ${nightId}`,
     sql`select p.id, p.name, p.gender, p.division, count(rp.player_id)::int as games_played
       from players p
@@ -479,12 +479,13 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
         and a.team in ('A', 'B')
         and b.team in ('A', 'B')
       group by a.player_id, b.player_id`,
-    sql`select r.round_number, rp.player_id
+    sql`select r.round_number, rp.player_id, r.created_at
       from venue_rounds r
       join venue_nights n on n.id = r.night_id
       left join venue_round_players rp on rp.round_id = r.id
       where n.session_id = ${sessionId} and n.status = 'OPEN'
       order by r.round_number`,
+    sql`select player_id, checked_in_at from venue_check_ins where session_id = ${sessionId}`,
   ]);
 
   const partnersByPlayer = new Map<string, Record<string, number>>();
@@ -514,29 +515,55 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
     }
   }
 
+  // Build round creation time map and player check-in time map
+  const roundCreatedAt = new Map<number, Date>();
+  for (const row of roundParticipationRows as any[]) {
+    const roundNumber = Number(row.round_number);
+    if (roundNumber <= 0) continue;
+    if (!roundCreatedAt.has(roundNumber)) {
+      roundCreatedAt.set(roundNumber, new Date(row.created_at));
+    }
+  }
+  const playerCheckedInAt = new Map<string, Date>();
+  for (const row of checkInRows as any[]) {
+    playerCheckedInAt.set(String(row.player_id), new Date(row.checked_in_at));
+  }
+
   // Compute per-player sit-out stats
   const playersWithStats = (playerRows as any[]).map((row) => {
     const playerId = String(row.id);
     const playedRounds = playerPlayedRounds.get(playerId) ?? new Set<number>();
     const gamesPlayed = Number(row.games_played) || 0;
     const roundsPlayed = Number((roundRows as any[])[0]?.rounds_played ?? 0);
-    const totalSits = roundsPlayed - gamesPlayed;
-
-    // Build 1/0 tally per round: 1 = played, 0 = sat out
-    const sits: number[] = [];
+    // Build 1/0/x tally per round: 1 = played, 0 = sat out, null = had not arrived yet
+    const sits: (number | null)[] = [];
     let maxConsecutiveSits = 0;
     let currentStreak = 0;
+    let totalSits = 0;
     for (let round = 1; round <= roundsPlayed; round++) {
-      const played = playedRounds.has(round) ? 1 : 0;
-      sits.push(played);
-      if (played === 0) {
+      let sitValue: number | null;
+      if (playedRounds.has(round)) {
+        sitValue = 1;
+      } else {
+        const rCreated = roundCreatedAt.get(round);
+        const pCheckedIn = playerCheckedInAt.get(playerId);
+        if (rCreated && pCheckedIn && rCreated < pCheckedIn) {
+          sitValue = null; // x — had not checked in yet when this round was created
+        } else {
+          sitValue = 0; // sat out
+        }
+      }
+      sits.push(sitValue);
+      if (sitValue === 0) {
         currentStreak++;
+        totalSits++;
         if (currentStreak > maxConsecutiveSits) {
           maxConsecutiveSits = currentStreak;
         }
-      } else {
+      } else if (sitValue === 1) {
         currentStreak = 0;
       }
+      // null (x): does not count as a sit and does not break the streak
     }
 
     return {
