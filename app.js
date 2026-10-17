@@ -101,6 +101,7 @@ let manualMode = false;
 let manualCandidates = [];
 let manualCourts = [];
 let selectedManualPlayerId = null;
+let manualFillSlot = null;
 let statisticsRequest = 0;
 
 const formatLabels = {
@@ -805,11 +806,132 @@ function restoreManualDraft() {
   renderManualBuilder();
 }
 
+/** Players not already placed on a manual court, in fairness order. */
+function availableManualPlayers() {
+  const assigned = new Set(manualCourts.flatMap(court => court.slots.filter(Boolean)));
+  return manualCandidates.filter(player => !assigned.has(player.id));
+}
+
+/** Same fairness priority the scheduler uses: fewest games, then longest waiting. */
+function sortByFairness(players) {
+  return [...players].sort((a, b) =>
+    a.gamesPlayed - b.gamesPlayed
+    || b.roundsWaiting - a.roundsWaiting
+    || a.name.localeCompare(b.name)
+  );
+}
+
+function openManualFillModal(courtIndex, slotIndex) {
+  manualFillSlot = { courtIndex, slotIndex };
+  const court = manualCourts[courtIndex];
+  let pool = availableManualPlayers();
+  if (court.format === 'MENS_DOUBLES') pool = pool.filter(player => player.gender === 'MALE');
+  else if (court.format === 'WOMENS_DOUBLES') pool = pool.filter(player => player.gender === 'FEMALE');
+  pool = sortByFairness(pool);
+  const list = document.querySelector('#manual-fill-options');
+  list.innerHTML = pool.length
+    ? pool.map(player => `<li><button type="button" class="manual-fill-player" data-manual-fill-in="${player.id}"><span>${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small></button></li>`).join('')
+    : '<li class="empty-state">No eligible players waiting.</li>';
+  document.querySelector('#manual-fill-modal').classList.remove('hidden');
+  document.querySelectorAll('[data-manual-fill-in]').forEach(button => {
+    button.addEventListener('click', () => fillManualPlayer(button.dataset.manualFillIn));
+  });
+}
+
+function closeManualFillModal() {
+  manualFillSlot = null;
+  document.querySelector('#manual-fill-modal').classList.add('hidden');
+}
+
+function fillManualPlayer(playerId) {
+  if (!manualFillSlot) return;
+  assignManualPlayer(playerId, manualFillSlot.courtIndex, manualFillSlot.slotIndex);
+  closeManualFillModal();
+}
+
+/**
+ * After players are manually placed, readjust the court's category (format)
+ * to match the genders actually on court. Keeps mixed teams balanced (1M+1F each).
+ */
+function readjustFormatForCourt(courtIndex) {
+  const court = manualCourts[courtIndex];
+  if (court.slots.some(id => !id)) return;
+  const players = court.slots.map(id => manualCandidates.find(player => player.id === id));
+  const men = players.filter(player => player.gender === 'MALE');
+  const women = players.filter(player => player.gender === 'FEMALE');
+  let target;
+  if (men.length === 4) target = 'MENS_DOUBLES';
+  else if (women.length === 4) target = 'WOMENS_DOUBLES';
+  else if (men.length === 2 && women.length === 2) target = 'MIXED_DOUBLES';
+  else return;
+  let changed = court.format !== target;
+  court.format = target;
+  if (target === 'MIXED_DOUBLES') {
+    const teamAMen = players.slice(0, 2).filter(player => player.gender === 'MALE').length;
+    const teamBMen = players.slice(2, 4).filter(player => player.gender === 'MALE').length;
+    const alreadyBalanced = teamAMen === 1 && teamBMen === 1;
+    if (!alreadyBalanced) court.slots = [men[0].id, women[0].id, men[1].id, women[1].id];
+    changed = changed || !alreadyBalanced;
+  }
+  if (!changed) return;
+  persistManualDraft();
+  const select = document.querySelector(`[data-manual-format="${courtIndex}"]`);
+  if (select) select.value = target;
+  renderManualBuilder();
+}
+
+/**
+ * Plan an autofill for a court's empty slots using the fairness order,
+ * respecting the court's gender-specific format. Returns null when a valid
+ * fill isn't possible (e.g. not enough eligible players waiting).
+ */
+function planManualAutofill(courtIndex) {
+  const court = manualCourts[courtIndex];
+  const emptySlots = court.slots.map((id, index) => id === null ? index : -1).filter(index => index >= 0);
+  if (!emptySlots.length) return null;
+  const available = sortByFairness(availableManualPlayers());
+  const filledPlayers = court.slots.filter(Boolean).map(id => manualCandidates.find(player => player.id === id));
+  let picks;
+  if (court.format === 'MENS_DOUBLES') {
+    const males = available.filter(player => player.gender === 'MALE');
+    if (males.length < emptySlots.length) return null;
+    picks = males.slice(0, emptySlots.length);
+  } else if (court.format === 'WOMENS_DOUBLES') {
+    const females = available.filter(player => player.gender === 'FEMALE');
+    if (females.length < emptySlots.length) return null;
+    picks = females.slice(0, emptySlots.length);
+  } else {
+    const currentMen = filledPlayers.filter(player => player.gender === 'MALE').length;
+    const currentWomen = filledPlayers.filter(player => player.gender === 'FEMALE').length;
+    if (currentMen > 2 || currentWomen > 2) return null;
+    const neededMen = 2 - currentMen;
+    const neededWomen = 2 - currentWomen;
+    if (neededMen + neededWomen !== emptySlots.length) return null;
+    const males = available.filter(player => player.gender === 'MALE').slice(0, neededMen);
+    const females = available.filter(player => player.gender === 'FEMALE').slice(0, neededWomen);
+    if (males.length < neededMen || females.length < neededWomen) return null;
+    picks = [...males, ...females];
+  }
+  return { slots: emptySlots, players: picks };
+}
+
+function autofillCourt(courtIndex) {
+  const plan = planManualAutofill(courtIndex);
+  if (!plan) return;
+  const court = manualCourts[courtIndex];
+  plan.slots.forEach((slotIndex, i) => {
+    court.slots[slotIndex] = plan.players[i].id;
+  });
+  persistManualDraft();
+  renderManualBuilder();
+  readjustFormatForCourt(courtIndex);
+}
+
 function renderManualCourts() {
   const courts = document.querySelector('#courts');
   courts.innerHTML = manualCourts.map((court, courtIndex) => `
     <article class="court manual-court" style="--court-color:${colourForFormat(court.format)}">
-      <div class="court-number"><strong>COURT ${court.court}</strong><select aria-label="Format for Court ${court.court}" data-manual-format="${courtIndex}">${manualFormats.map(([value, label]) => `<option value="${value}" ${court.format === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
+      <div class="court-number"><strong>COURT ${court.court}</strong><select aria-label="Format for Court ${court.court}" data-manual-format="${courtIndex}">${manualFormats.map(([value, label]) => `<option value="${value}" ${court.format === value ? 'selected' : ''}>${label}</option>`).join('')}</select><button type="button" class="manual-autofill" data-manual-autofill="${courtIndex}" ${planManualAutofill(courtIndex) ? '' : 'disabled'} title="Fill empty places with eligible players in fairness order">Autofill</button></div>
       <div class="manual-teams">
         <div class="manual-team team-a-slots"><small>TEAM A</small>${court.slots.slice(0, 2).map((playerId, slotIndex) => manualSlotMarkup(playerId, courtIndex, slotIndex)).join('')}</div>
         <div class="manual-team team-b-slots"><small>TEAM B</small>${court.slots.slice(2, 4).map((playerId, slotIndex) => manualSlotMarkup(playerId, courtIndex, slotIndex + 2)).join('')}</div>
@@ -820,6 +942,9 @@ function renderManualCourts() {
     persistManualDraft();
     renderManualBuilder();
   }));
+  courts.querySelectorAll('[data-manual-autofill]').forEach(button => {
+    button.addEventListener('click', () => autofillCourt(Number(button.dataset.manualAutofill)));
+  });
   courts.querySelectorAll('[data-manual-slot]').forEach(slot => {
     if (slot.dataset.manualPlayer) slot.addEventListener('dragstart', event => {
       event.dataTransfer.setData('text/plain', slot.dataset.manualPlayer);
@@ -832,6 +957,8 @@ function renderManualCourts() {
         manualCourts[courtIndex].slots[slotIndex] = null;
         persistManualDraft();
         renderManualBuilder();
+      } else {
+        openManualFillModal(courtIndex, slotIndex);
       }
     });
     slot.addEventListener('dragover', event => { event.preventDefault(); slot.classList.add('drop-ready'); });
@@ -868,6 +995,7 @@ function assignManualPlayer(playerId, courtIndex, slotIndex) {
   selectedManualPlayerId = null;
   persistManualDraft();
   renderManualBuilder();
+  readjustFormatForCourt(courtIndex);
 }
 
 async function startManualRound() {
@@ -1634,6 +1762,13 @@ document.addEventListener('visibilitychange', () => {
 document.querySelector('#swap-cancel').addEventListener('click', closeSwapModal);
 document.querySelector('#swap-modal').addEventListener('click', event => {
   if (event.target.id === 'swap-modal') closeSwapModal();
+});
+document.querySelector('#manual-fill-cancel').addEventListener('click', closeManualFillModal);
+document.querySelector('#manual-fill-modal').addEventListener('click', event => {
+  if (event.target.id === 'manual-fill-modal') closeManualFillModal();
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && manualFillSlot) closeManualFillModal();
 });
 document.querySelector('#venue-form').addEventListener('submit', async event => {
   event.preventDefault();
