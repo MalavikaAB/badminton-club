@@ -25,10 +25,10 @@
 .modal-card li button { width:100%; text-align:left; border:1px solid var(--line); background:var(--paper); padding:12px 14px; margin-bottom:8px; cursor:pointer; font:600 16px 'Space Grotesk'; }
 .modal-card li button small { display:block; color:var(--muted); font:11px 'DM Mono'; margin-top:4px; }
 .manual-mode-button { width:100%; margin-top:12px; }
-.manual-autofill { margin-left:8px; padding:6px 10px; border:1px solid var(--line); border-radius:5px; background:var(--panel); color:var(--ink); font:500 11px 'DM Mono',monospace; cursor:pointer; }
+.manual-autofill { margin-left:8px; padding:7px 12px; border:1px solid var(--line); border-radius:5px; background:var(--panel); color:var(--ink); font:500 11px 'DM Mono',monospace; cursor:pointer; white-space:nowrap; }
 .manual-autofill:disabled { opacity:.55; cursor:not-allowed; }
+.manual-court .court-number { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 .manual-court { min-height:280px; }
-.manual-court .court-number { align-items:center; gap:10px; }
 .manual-court select { max-width:58%; border:1px solid var(--line); border-radius:5px; background:var(--panel); color:var(--ink); padding:7px 8px; font:500 12px 'DM Mono',monospace; }
 .manual-teams { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:18px; }
 .manual-team { display:grid; gap:7px; min-width:0; }

@@ -938,7 +938,11 @@ function renderManualCourts() {
       </div>
     </article>`).join('');
   courts.querySelectorAll('[data-manual-format]').forEach(select => select.addEventListener('change', () => {
-    manualCourts[Number(select.dataset.manualFormat)].format = select.value;
+    const courtIndex = Number(select.dataset.manualFormat);
+    manualCourts[courtIndex].format = select.value;
+    // Changing the category clears placed players so Autofill can refill
+    // under the new gender rules.
+    manualCourts[courtIndex].slots = manualCourts[courtIndex].slots.map(() => null);
     persistManualDraft();
     renderManualBuilder();
   }));
