@@ -376,9 +376,10 @@ async function handleCheckIns(
       // (Stale-night reset is handled by the GET check-ins and round
       // generation paths, which also consult the clock.)
       await Promise.all([
-        sql`insert into venue_check_ins (session_id, player_id, sit_out_rounds)
-          values (${sessionId}, ${playerId}::uuid, 0)
-          on conflict (session_id, player_id) do update set checked_in_at = now()`,
+        sql`insert into venue_check_ins (session_id, player_id, sit_out_rounds, priority_game)
+          values (${sessionId}, ${playerId}::uuid, 0, true)
+          on conflict (session_id, player_id) do update
+          set checked_in_at = now(), priority_game = true`,
         ensureOpenNight(sessionId),
       ]);
       await sql`update players set rounds_waiting = 0 where id = ${playerId}`;
@@ -794,8 +795,11 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
     return;
   }
   const roundId = randomUUID();
-  await sql`insert into venue_rounds (id, session_id, night_id, round_number)
-    values (${roundId}::uuid, ${sessionId}, ${nightId}::uuid, ${allocation.roundNumber})`;
+  const insertedRounds = await sql`insert into venue_rounds (id, session_id, night_id, round_number)
+    values (${roundId}::uuid, ${sessionId}, ${nightId}::uuid, ${allocation.roundNumber})
+    returning created_at`;
+  const roundCreatedAt = (insertedRounds as { created_at: Date }[])[0]?.created_at;
+  if (!roundCreatedAt) throw new Error('Generated round was not saved');
   const rows = allocation.courts.flatMap((court) => {
     const teamA = new Set(court.teamA.map((p) => p.id));
     return court.players.map((p) => ({
@@ -820,6 +824,11 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
       where id = any(${selectedIds}::uuid[])`;
   }
   await Promise.all([
+    sql`update venue_check_ins set priority_game = false
+      where session_id = ${sessionId}
+        and player_id = any(${assignedIds}::uuid[])
+        and priority_game = true
+        and checked_in_at <= ${roundCreatedAt}`,
     sql`update venue_check_ins set sit_out_rounds = greatest(sit_out_rounds - 1, 0)
       where session_id = ${sessionId} and sit_out_rounds > 0`,
     syncNightGameCounts(sessionId, nightId),

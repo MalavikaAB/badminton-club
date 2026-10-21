@@ -249,6 +249,50 @@ test('game totals do not affect selection when wait rounds are equal', () => {
   assert(assignedIds.has('many-games'));
 });
 
+test('new arrivals keep priority until they play and sit-outs appear only once', () => {
+  const players = Array.from({ length: 10 }, (_, index) => {
+    const player = makePlayer(
+      `player-${index}`,
+      `Player ${index}`,
+      'MALE',
+      '10',
+      new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+      0,
+      index === 4 ? 10 : 0,
+      index === 9,
+    );
+    if (index === 8) player.priorityGame = true;
+    return player;
+  });
+  players.push({ ...players[9] });
+
+  const allocation = generateRound(1, players, null, false, 2);
+  const assignedIds = new Set(allocation.courts.flatMap((court) =>
+    court.players.map((player) => player.id),
+  ));
+  const waitingIds = allocation.waiting.map((player) => player.id);
+
+  assert(assignedIds.has('player-8'), 'a new arrival should get priority over waiting time');
+  assert(!assignedIds.has('player-9'), 'a marked sitter must not be selected');
+  assert.equal(waitingIds.filter((id) => id === 'player-9').length, 1);
+  assert.equal(new Set(waitingIds).size, waitingIds.length, 'no player should sit out twice in one round');
+});
+
+test('check-in priority is persisted until an assigned game consumes it', () => {
+  const schema = readSource('schema.ts');
+  const repo2 = readSource('repo2.ts');
+  const router = readSource('router.ts');
+
+  assert.match(schema, /priority_game boolean not null default false/i);
+  assert.match(repo2, /priorityGame:\s*r\.priority_game === true/);
+  assert.match(router, /set checked_in_at = now\(\), priority_game = true/i);
+  assert.match(
+    router,
+    /set priority_game = false[\s\S]*?player_id = any\(\$\{assignedIds\}::uuid\[\]\)[\s\S]*?checked_in_at <= \$\{roundCreatedAt\}/i,
+    'only players assigned before the round was created should consume their priority',
+  );
+});
+
 test('pair-count history is loaded for both players in every stored pair', () => {
   const repo2 = readSource('repo2.ts');
 

@@ -180,6 +180,7 @@ function selectBestPlayers(
       outgoingIndex: number;
       incoming: Player;
       rankCost: number;
+      priorityCount: number;
       score: number;
     } | null = null;
 
@@ -201,14 +202,17 @@ function selectBestPlayers(
 
         const incomingRank = candidateRanks.get(incoming.id) ?? Number.MAX_SAFE_INTEGER;
         const rankCost = incomingRank - outgoingRank;
+        const priorityCount = priorityGameCount(next);
         const score = scoreSelection(next);
 
         if (
           !bestSwap ||
-          rankCost < bestSwap.rankCost ||
-          (rankCost === bestSwap.rankCost && score > bestSwap.score)
+          priorityCount > bestSwap.priorityCount ||
+          (priorityCount === bestSwap.priorityCount &&
+            (rankCost < bestSwap.rankCost ||
+              (rankCost === bestSwap.rankCost && score > bestSwap.score)))
         ) {
-          bestSwap = { outgoingIndex: i, incoming, rankCost, score };
+          bestSwap = { outgoingIndex: i, incoming, rankCost, priorityCount, score };
         }
       }
     }
@@ -229,9 +233,6 @@ function selectBestPlayers(
       (p) => !selectedIds.has(p.id),
     );
 
-    const currentScore = scoreSelection(selected);
-
-    let bestScore = currentScore;
     let bestSelection: Player[] | null = null;
 
     for (const incoming of waiting) {
@@ -242,16 +243,13 @@ function selectBestPlayers(
         next[i] = incoming;
         if (!canFieldCourtCount(next, requiredPlayers / 4)) continue;
 
-        const score = scoreSelection(next);
-
-        if (score > bestScore) {
-          bestScore = score;
+        if (compareSelectionQuality(next, bestSelection ?? selected) > 0) {
           bestSelection = next;
         }
       }
     }
 
-    if (bestSelection) {
+    if (bestSelection && compareSelectionQuality(bestSelection, selected) > 0) {
       selected = bestSelection;
       improved = true;
     }
@@ -268,6 +266,16 @@ function selectBestPlayers(
    * determine the actual court/team arrangement.
    */
   return selected.sort(comparePriority);
+}
+
+function compareSelectionQuality(left: Player[], right: Player[]): number {
+  const priorityDifference =
+    priorityGameCount(left) - priorityGameCount(right);
+  return priorityDifference || scoreSelection(left) - scoreSelection(right);
+}
+
+function priorityGameCount(players: Player[]): number {
+  return players.filter((player) => player.priorityGame === true).length;
 }
 
 function canFieldCourtCount(
@@ -495,12 +503,19 @@ function waitingAfter(
     ),
   );
 
-  return [
+  const waitingById = new Map<string, Player>();
+  for (const player of [
     ...resting,
     ...ordered.filter(
       (player) => !assigned.has(player.id),
     ),
-  ].sort(comparePriority);
+  ]) {
+    if (!waitingById.has(player.id)) {
+      waitingById.set(player.id, player);
+    }
+  }
+
+  return [...waitingById.values()].sort(comparePriority);
 }
 
 /**
@@ -772,6 +787,10 @@ export function comparePriority(
   a: Player,
   b: Player,
 ): number {
+  if (Boolean(a.priorityGame) !== Boolean(b.priorityGame)) {
+    return a.priorityGame ? -1 : 1;
+  }
+
   if (
     a.roundsWaiting !==
     b.roundsWaiting
@@ -933,6 +952,7 @@ function buildBestFormatCourts(
   let best: CourtAssignment[] | null = null;
   let bestRepeatCount = Number.POSITIVE_INFINITY;
   let bestScore = Number.POSITIVE_INFINITY;
+  let bestSameGenderCourtCount = -1;
   for (const plan of candidates) {
     const courts = buildAllCourts(selected, courtCount, plan);
     if (courts.length !== courtCount) continue;
@@ -954,13 +974,18 @@ function buildBestFormatCourts(
       (sum, court) => sum + courtRepeatCountOf(court),
       0,
     );
+    const sameGenderCourtCount = counts.mens + counts.womens;
     if (
       score < bestScore ||
-      (score === bestScore && repeatCount < bestRepeatCount)
+      (score === bestScore && repeatCount < bestRepeatCount) ||
+      (score === bestScore &&
+        repeatCount === bestRepeatCount &&
+        sameGenderCourtCount > bestSameGenderCourtCount)
     ) {
       best = courts;
       bestRepeatCount = repeatCount;
       bestScore = score;
+      bestSameGenderCourtCount = sameGenderCourtCount;
     }
   }
 

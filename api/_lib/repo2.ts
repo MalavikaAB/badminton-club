@@ -28,6 +28,7 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
   const sql = db();
   const rows = await sql`select p.id, p.name, p.gender, p.division, p.beginner, p.games_played, p.rounds_waiting,
     ci.checked_in_at, coalesce(ci.sit_out_rounds, 0) as sit_out_rounds,
+    coalesce(ci.priority_game, false) as priority_game,
     coalesce(pc.pairs, '{}') as pairs, coalesce(pc.opps, '{}') as opps,
     coalesce(lp.partner, '') as last_partner, coalesce(lp.opps, '{}') as last_opps
     from venue_check_ins ci
@@ -81,6 +82,7 @@ function toPlayer(r: any): Player {
     gamesPlayed: Number(r.games_played ?? 0),
     roundsWaiting: Number(r.rounds_waiting ?? 0),
     sittingOut: Number(r.sit_out_rounds ?? 0) > 0,
+    priorityGame: r.priority_game === true,
     pairCount: parseCounts(r.pairs), oppCount: parseCounts(r.opps),
     lastPartner: r.last_partner ? String(r.last_partner) : null,
     lastOpponents: parseIds(r.last_opps),
