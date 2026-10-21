@@ -225,7 +225,7 @@ test('repeat partners are avoided when a legal alternative exists', () => {
   assert(!partneredPairs.includes(['a', 'b'].join()));
 });
 
-test('game totals do not affect selection when wait rounds are equal', () => {
+test('players with fewer games get priority when wait rounds are equal', () => {
   const players = [
     makePlayer('many-games', 'Many Games', 'MALE', '10', '2026-01-01T00:00:00.000Z', 10, 0),
     ...['a', 'b', 'c', 'd'].map((id, index) =>
@@ -246,7 +246,51 @@ test('game totals do not affect selection when wait rounds are equal', () => {
     court.players.map((player) => player.id),
   ));
 
-  assert(assignedIds.has('many-games'));
+  assert(!assignedIds.has('many-games'));
+});
+
+test('a new arrival gets their first game before returning players', () => {
+  const players = [
+    ...Array.from({ length: 4 }, (_, index) =>
+      makePlayer(`man-${index}`, `Man ${index}`, 'MALE', '10',
+        '2026-01-01T00:00:00.000Z', 5, 20),
+    ),
+    ...Array.from({ length: 5 }, (_, index) =>
+      makePlayer(`woman-${index}`, `Woman ${index}`, 'FEMALE', '10',
+        '2026-01-01T00:01:00.000Z', 5, 0),
+    ),
+  ];
+  players[8].priorityGame = true;
+
+  const allocation = generateRound(6, players, null, false, 2);
+  const assignedIds = new Set(allocation.courts.flatMap((court) =>
+    court.players.map((player) => player.id),
+  ));
+
+  assert(assignedIds.has('woman-4'));
+});
+
+test('separate divisions allocate courts to the players with fewer games', () => {
+  const players = [
+    ...Array.from({ length: 4 }, (_, index) =>
+      makePlayer(`experienced-${index}`, `Experienced ${index}`, 'MALE', 'A',
+        '2026-01-01T00:00:00.000Z', 10, 3),
+    ),
+    ...Array.from({ length: 8 }, (_, index) =>
+      makePlayer(`new-${index}`, `New ${index}`, 'MALE', 'B',
+        '2026-01-01T00:01:00.000Z', 0, 0),
+    ),
+  ];
+
+  const allocation = generateRound(11, players, null, true, 2);
+
+  assert.equal(allocation.courts.length, 2);
+  assert(
+    allocation.courts.every((court) =>
+      court.players.every((player) => player.division === 'B'),
+    ),
+    'keep divisions separate while giving the available courts to the lower-game group',
+  );
 });
 
 test('new arrivals keep priority until they play and sit-outs appear only once', () => {
@@ -286,7 +330,7 @@ test('players return to the back of the queue after playing', () => {
       'MALE',
       '10',
       new Date(Date.UTC(2026, 0, 1, 0, index === 4 ? 0 : index + 1)).toISOString(),
-      index === 4 ? 0 : 1,
+      1,
       0,
     ),
   );

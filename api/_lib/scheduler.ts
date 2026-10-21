@@ -529,223 +529,91 @@ function generateSeparatedRound(
   resting: Player[],
   courtCount: number,
 ): RoundAllocation {
-  /**
-   * Group players by division while preserving the global priority
-   * ordering inside each division.
-   */
   const byDiv = new Map<string, Player[]>();
-
   for (const player of ordered) {
-    if (!byDiv.has(player.division)) {
-      byDiv.set(player.division, []);
-    }
-
-    byDiv.get(player.division)!.push(player);
+    const group = byDiv.get(player.division) ?? [];
+    group.push(player);
+    byDiv.set(player.division, group);
   }
 
-  const groups = [...byDiv.entries()].map(
-    ([division, pool]) => ({
-      division,
-      pool,
+  const groups = [...byDiv.entries()].map(([division, pool]) => ({
+    division,
+    pool,
+    capacity: legalCourtCapacity(pool),
+  }));
+
+  type DivisionPlan = {
+    selected: Player[];
+    priorityGames: number;
+    totalGames: number;
+    totalWaiting: number;
+    lastPlayedRounds: number;
+  };
+
+  const plansByGroup = groups.map((group) =>
+    Array.from({ length: group.capacity + 1 }, (_, courtCountForDivision) => {
+      const requiredPlayers = courtCountForDivision * 4;
+      if (requiredPlayers === 0) {
+        return {
+          selected: [],
+          priorityGames: 0,
+          totalGames: 0,
+          totalWaiting: 0,
+          lastPlayedRounds: 0,
+        };
+      }
+
+      const candidateCount = Math.min(
+        group.pool.length,
+        requiredPlayers + courtCountForDivision * EXTRA_CANDIDATES_PER_COURT,
+      );
+      const selected = selectBestPlayers(
+        group.pool,
+        requiredPlayers,
+        group.pool.slice(0, candidateCount),
+      );
+      if (!canFieldCourtCount(selected, courtCountForDivision)) return null;
+
+      return {
+        selected,
+        priorityGames: priorityGameCount(selected),
+        totalGames: selected.reduce((sum, player) => sum + player.gamesPlayed, 0),
+        totalWaiting: selected.reduce((sum, player) => sum + player.roundsWaiting, 0),
+        lastPlayedRounds: selected.reduce(
+          (sum, player) => sum + (player.lastPlayedRound ?? 0),
+          0,
+        ),
+      };
     }),
   );
 
-  const waitRank = new Map(
-    ordered.map((player, index) => [
-      player.id,
-      index,
-    ]),
-  );
-
-  const minRank = (group: {
-    pool: Player[];
-  }): number => {
-    if (group.pool.length === 0) {
-      return Number.MAX_SAFE_INTEGER;
+  const plans = new Map<number, DivisionPlan[]>();
+  plans.set(0, []);
+  for (const groupPlans of plansByGroup) {
+    const next = new Map<number, DivisionPlan[]>();
+    for (const [courtsUsed, previous] of plans) {
+      for (let count = 0; count < groupPlans.length; count++) {
+        const groupPlan = groupPlans[count];
+        if (!groupPlan || courtsUsed + count > courtCount) continue;
+        const combined = [...previous, groupPlan];
+        const totalCourts = courtsUsed + count;
+        const current = next.get(totalCourts);
+        if (!current || compareDivisionPlans(combined, current) > 0) {
+          next.set(totalCourts, combined);
+        }
+      }
     }
+    plans.clear();
+    for (const [count, plan] of next) plans.set(count, plan);
+  }
 
-    return Math.min(
-      ...group.pool.map(
-        (player) =>
-          waitRank.get(player.id) ??
-          Number.MAX_SAFE_INTEGER,
-      ),
-    );
-  };
-
-  /**
-   * A division can only field one court per four available players.
-   */
-  const capacityOf = (group: {
-    pool: Player[];
-  }): number => legalCourtCapacity(group.pool);
-
-  /**
-   * Phase A:
-   *
-   * Allocate courts roughly according to division size.
-   *
-   * Largest remainder rounding prevents the allocation from being
-   * biased toward whichever division happens to appear first.
-   */
-  const courtsByDiv = new Map<string, number>();
-
-  const remainders = groups.map((group) => {
-    const exact =
-      (courtCount * group.pool.length) /
-      ordered.length;
-
-    const base = Math.floor(exact);
-
-    courtsByDiv.set(
-      group.division,
-      base,
-    );
-
-    return {
-      group,
-      remainder: exact - base,
-    };
+  const winningPlan = plans.get(courtCount);
+  const all = groups.flatMap((group, index) => {
+    const divisionPlan = winningPlan?.[index];
+    if (!divisionPlan || divisionPlan.selected.length === 0) return [];
+    const divisionCourtCount = divisionPlan.selected.length / 4;
+    return buildBestFormatCourts(divisionPlan.selected, divisionCourtCount);
   });
-
-  let spare =
-    courtCount -
-    [...courtsByDiv.values()].reduce(
-      (sum, count) => sum + count,
-      0,
-    );
-
-  const byRemainder = [...remainders].sort(
-    (a, b) =>
-      b.remainder - a.remainder ||
-      minRank(a.group) - minRank(b.group) ||
-      a.group.division.localeCompare(
-        b.group.division,
-      ),
-  );
-
-  for (const { group } of byRemainder) {
-    if (spare <= 0) {
-      break;
-    }
-
-    courtsByDiv.set(
-      group.division,
-      (courtsByDiv.get(group.division) ?? 0) + 1,
-    );
-
-    spare--;
-  }
-
-  /**
-   * Never allocate more courts than the division can actually field.
-   */
-  for (const group of groups) {
-    courtsByDiv.set(
-      group.division,
-      Math.min(
-        courtsByDiv.get(group.division) ?? 0,
-        capacityOf(group),
-      ),
-    );
-  }
-
-  /**
-   * Redistribute any courts that could not be filled.
-   *
-   * Prefer divisions with:
-   *  1. more unallocated players
-   *  2. players who have waited longer
-   */
-  let unfilled =
-    courtCount -
-    [...courtsByDiv.values()].reduce(
-      (sum, count) => sum + count,
-      0,
-    );
-
-  while (unfilled > 0) {
-    const candidate = groups
-      .filter(
-        (group) =>
-          (courtsByDiv.get(group.division) ?? 0) <
-          capacityOf(group),
-      )
-      .sort((a, b) => {
-        const remainingA =
-          a.pool.length -
-          4 *
-            (courtsByDiv.get(a.division) ?? 0);
-
-        const remainingB =
-          b.pool.length -
-          4 *
-            (courtsByDiv.get(b.division) ?? 0);
-
-        return (
-          remainingB - remainingA ||
-          minRank(a) - minRank(b) ||
-          a.division.localeCompare(
-            b.division,
-          )
-        );
-      })[0];
-
-    if (!candidate) {
-      break;
-    }
-
-    courtsByDiv.set(
-      candidate.division,
-      (courtsByDiv.get(candidate.division) ?? 0) + 1,
-    );
-
-    unfilled--;
-  }
-
-  /**
-   * Phase B:
-   *
-   * Select players for each division.
-   *
-   * We use the same improved selection algorithm within each
-   * division rather than blindly taking pool.slice(0, n * 4).
-   */
-  const all: CourtAssignment[] = [];
-
-  for (const group of groups) {
-    const courtCountForDivision =
-      courtsByDiv.get(group.division) ?? 0;
-
-    if (courtCountForDivision <= 0) {
-      continue;
-    }
-
-    const requiredPlayers =
-      courtCountForDivision * 4;
-
-    const candidateCount = Math.min(
-      group.pool.length,
-      requiredPlayers +
-        courtCountForDivision *
-          EXTRA_CANDIDATES_PER_COURT,
-    );
-
-    const candidates = group.pool;
-
-    const selected = selectBestPlayers(
-      candidates,
-      requiredPlayers,
-      group.pool.slice(0, candidateCount),
-    );
-
-    all.push(
-      ...buildBestFormatCourts(
-        selected,
-        courtCountForDivision,
-      ),
-    );
-  }
 
   const numbered = renumberCourts(all);
 
@@ -758,6 +626,42 @@ function generateSeparatedRound(
       resting,
     ),
   };
+}
+
+function compareDivisionPlans(
+  left: Array<{
+    priorityGames: number;
+    totalGames: number;
+    totalWaiting: number;
+    lastPlayedRounds: number;
+    selected: Player[];
+  }>,
+  right: Array<{
+    priorityGames: number;
+    totalGames: number;
+    totalWaiting: number;
+    lastPlayedRounds: number;
+    selected: Player[];
+  }>,
+): number {
+  const metrics = (plan: typeof left) => plan.reduce(
+    (total, item) => ({
+      priorityGames: total.priorityGames + item.priorityGames,
+      totalGames: total.totalGames + item.totalGames,
+      totalWaiting: total.totalWaiting + item.totalWaiting,
+      lastPlayedRounds: total.lastPlayedRounds + item.lastPlayedRounds,
+    }),
+    { priorityGames: 0, totalGames: 0, totalWaiting: 0, lastPlayedRounds: 0 },
+  );
+  const a = metrics(left);
+  const b = metrics(right);
+
+  return (
+    a.priorityGames - b.priorityGames ||
+    b.totalGames - a.totalGames ||
+    a.totalWaiting - b.totalWaiting ||
+    b.lastPlayedRounds - a.lastPlayedRounds
+  );
 }
 
 /**
@@ -779,10 +683,11 @@ export function renumberCourts(
  * Priority order:
  *
  * 1. One-game priority for new arrivals
- * 2. Longest waiting
- * 3. Earliest last game
- * 4. Earlier check-in
- * 5. Name
+ * 2. Fewest games played
+ * 3. Longest waiting
+ * 4. Earliest last game
+ * 5. Earlier check-in
+ * 6. Name
  *
  * This keeps the externally visible queue deterministic.
  */
@@ -792,6 +697,10 @@ export function comparePriority(
 ): number {
   if (Boolean(a.priorityGame) !== Boolean(b.priorityGame)) {
     return a.priorityGame ? -1 : 1;
+  }
+
+  if (a.gamesPlayed !== b.gamesPlayed) {
+    return a.gamesPlayed - b.gamesPlayed;
   }
 
   if (
@@ -804,10 +713,7 @@ export function comparePriority(
     );
   }
 
-  if (
-    (a.lastPlayedRound ?? 0) !==
-    (b.lastPlayedRound ?? 0)
-  ) {
+  if ((a.lastPlayedRound ?? 0) !== (b.lastPlayedRound ?? 0)) {
     return (a.lastPlayedRound ?? 0) - (b.lastPlayedRound ?? 0);
   }
 
