@@ -274,7 +274,7 @@ test('separate divisions allocate courts to the players with fewer games', () =>
   const players = [
     ...Array.from({ length: 4 }, (_, index) =>
       makePlayer(`experienced-${index}`, `Experienced ${index}`, 'MALE', 'A',
-        '2026-01-01T00:00:00.000Z', 10, 3),
+        '2026-01-01T00:00:00.000Z', 10, 0),
     ),
     ...Array.from({ length: 8 }, (_, index) =>
       makePlayer(`new-${index}`, `New ${index}`, 'MALE', 'B',
@@ -290,6 +290,48 @@ test('separate divisions allocate courts to the players with fewer games', () =>
       court.players.every((player) => player.division === 'B'),
     ),
     'keep divisions separate while giving the available courts to the lower-game group',
+  );
+});
+
+test('a player who sat out last round plays when a legal alternative exists', () => {
+  const players = [
+    ...Array.from({ length: 4 }, (_, index) =>
+      makePlayer(`sat-${index}`, `Sat ${index}`, 'MALE', '10',
+        new Date(Date.UTC(2026, 0, 1, 0, index + 1)).toISOString(), 1, 1),
+    ),
+    makePlayer('played', 'Played Last Round', 'MALE', '10',
+      '2026-01-01T00:00:00.000Z', 2, 0),
+  ];
+  players[4].priorityGame = true;
+
+  const allocation = generateRound(2, players, null, false, 1);
+  const assignedIds = new Set(allocation.courts.flatMap((court) =>
+    court.players.map((player) => player.id),
+  ));
+
+  assert(
+    players.slice(0, 4).every((player) => assignedIds.has(player.id)),
+    'one-game arrival priority must not force a consecutive sit-out',
+  );
+  assert(!assignedIds.has('played'));
+});
+
+test('a consecutive sit-out is unavoidable when every player sat out last round', () => {
+  const players = Array.from({ length: 5 }, (_, index) =>
+    makePlayer(`player-${index}`, `Player ${index}`, 'MALE', '10',
+      new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(), 1, 1),
+  );
+
+  const allocation = generateRound(2, players, null, false, 1);
+  const assignedIds = new Set(allocation.courts.flatMap((court) =>
+    court.players.map((player) => player.id),
+  ));
+
+  assert.equal(assignedIds.size, 4);
+  assert.equal(allocation.waiting.length, 1);
+  assert(
+    allocation.waiting[0].roundsWaiting > 0,
+    'one player must sit twice because all five players sat last round and only four fit',
   );
 });
 

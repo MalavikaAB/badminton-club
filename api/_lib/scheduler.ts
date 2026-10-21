@@ -180,6 +180,7 @@ function selectBestPlayers(
       outgoingIndex: number;
       incoming: Player;
       rankCost: number;
+      consecutiveSitOuts: number;
       priorityCount: number;
       score: number;
     } | null = null;
@@ -202,17 +203,27 @@ function selectBestPlayers(
 
         const incomingRank = candidateRanks.get(incoming.id) ?? Number.MAX_SAFE_INTEGER;
         const rankCost = incomingRank - outgoingRank;
+        const consecutiveSitOuts = consecutiveSitOutCount(next);
         const priorityCount = priorityGameCount(next);
         const score = scoreSelection(next);
 
         if (
           !bestSwap ||
-          priorityCount > bestSwap.priorityCount ||
-          (priorityCount === bestSwap.priorityCount &&
-            (rankCost < bestSwap.rankCost ||
-              (rankCost === bestSwap.rankCost && score > bestSwap.score)))
+          consecutiveSitOuts > bestSwap.consecutiveSitOuts ||
+          (consecutiveSitOuts === bestSwap.consecutiveSitOuts &&
+            (priorityCount > bestSwap.priorityCount ||
+              (priorityCount === bestSwap.priorityCount &&
+                (rankCost < bestSwap.rankCost ||
+                  (rankCost === bestSwap.rankCost && score > bestSwap.score)))))
         ) {
-          bestSwap = { outgoingIndex: i, incoming, rankCost, priorityCount, score };
+          bestSwap = {
+            outgoingIndex: i,
+            incoming,
+            rankCost,
+            consecutiveSitOuts,
+            priorityCount,
+            score,
+          };
         }
       }
     }
@@ -270,9 +281,17 @@ function selectBestPlayers(
 }
 
 function compareSelectionQuality(left: Player[], right: Player[]): number {
+  const consecutiveSitOutDifference =
+    consecutiveSitOutCount(left) - consecutiveSitOutCount(right);
+  if (consecutiveSitOutDifference) return consecutiveSitOutDifference;
+
   const priorityDifference =
     priorityGameCount(left) - priorityGameCount(right);
   return priorityDifference || scoreSelection(left) - scoreSelection(right);
+}
+
+function consecutiveSitOutCount(players: Player[]): number {
+  return players.filter((player) => player.roundsWaiting > 0).length;
 }
 
 function priorityGameCount(players: Player[]): number {
@@ -544,6 +563,7 @@ function generateSeparatedRound(
 
   type DivisionPlan = {
     selected: Player[];
+    consecutiveSitOuts: number;
     priorityGames: number;
     totalGames: number;
     totalWaiting: number;
@@ -556,6 +576,7 @@ function generateSeparatedRound(
       if (requiredPlayers === 0) {
         return {
           selected: [],
+          consecutiveSitOuts: 0,
           priorityGames: 0,
           totalGames: 0,
           totalWaiting: 0,
@@ -576,6 +597,7 @@ function generateSeparatedRound(
 
       return {
         selected,
+        consecutiveSitOuts: consecutiveSitOutCount(selected),
         priorityGames: priorityGameCount(selected),
         totalGames: selected.reduce((sum, player) => sum + player.gamesPlayed, 0),
         totalWaiting: selected.reduce((sum, player) => sum + player.roundsWaiting, 0),
@@ -630,6 +652,7 @@ function generateSeparatedRound(
 
 function compareDivisionPlans(
   left: Array<{
+    consecutiveSitOuts: number;
     priorityGames: number;
     totalGames: number;
     totalWaiting: number;
@@ -637,6 +660,7 @@ function compareDivisionPlans(
     selected: Player[];
   }>,
   right: Array<{
+    consecutiveSitOuts: number;
     priorityGames: number;
     totalGames: number;
     totalWaiting: number;
@@ -646,17 +670,25 @@ function compareDivisionPlans(
 ): number {
   const metrics = (plan: typeof left) => plan.reduce(
     (total, item) => ({
+      consecutiveSitOuts: total.consecutiveSitOuts + item.consecutiveSitOuts,
       priorityGames: total.priorityGames + item.priorityGames,
       totalGames: total.totalGames + item.totalGames,
       totalWaiting: total.totalWaiting + item.totalWaiting,
       lastPlayedRounds: total.lastPlayedRounds + item.lastPlayedRounds,
     }),
-    { priorityGames: 0, totalGames: 0, totalWaiting: 0, lastPlayedRounds: 0 },
+    {
+      consecutiveSitOuts: 0,
+      priorityGames: 0,
+      totalGames: 0,
+      totalWaiting: 0,
+      lastPlayedRounds: 0,
+    },
   );
   const a = metrics(left);
   const b = metrics(right);
 
   return (
+    a.consecutiveSitOuts - b.consecutiveSitOuts ||
     a.priorityGames - b.priorityGames ||
     b.totalGames - a.totalGames ||
     a.totalWaiting - b.totalWaiting ||
@@ -695,6 +727,10 @@ export function comparePriority(
   a: Player,
   b: Player,
 ): number {
+  if ((a.roundsWaiting > 0) !== (b.roundsWaiting > 0)) {
+    return a.roundsWaiting > 0 ? -1 : 1;
+  }
+
   if (Boolean(a.priorityGame) !== Boolean(b.priorityGame)) {
     return a.priorityGame ? -1 : 1;
   }
