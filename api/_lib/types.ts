@@ -14,6 +14,8 @@ export interface Player {
   beginner?: boolean;
   /** A newly checked-in player keeps priority until they have played once. */
   priorityGame?: boolean;
+  /** Most recent club-night round this player was assigned to. */
+  lastPlayedRound?: number;
   /** ISO-8601 timestamp of check-in; epoch when unknown. */
   checkedInAt: string;
   gamesPlayed: number;

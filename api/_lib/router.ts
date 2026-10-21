@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { readJson, sendError, sendJson } from './http.js';
 import { db } from './db.js';
 import { ensureSchema } from './schema.js';
-import { generateRound } from './scheduler.js';
+import { comparePriority, generateRound } from './scheduler.js';
 import { EPOCH, type CourtAssignment, type GameFormat, type Gender, type Player, type RoundAllocation } from './types.js';
 import { splitLegalForFormat } from './pairing2.js';
 import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions, createSession, updateSession, setSessionActive } from './repo.js';
@@ -404,11 +404,16 @@ async function handleLatestRound(res: VercelResponse, sessionId: string): Promis
     loadCheckedInPlayers(sessionId, nightId),
   ]);
   if (alloc.roundNumber === 0) {
-    sendJson(res, 200, serializeAllocation({ roundNumber: 0, courts: [], waiting: checked }));
+    sendJson(res, 200, serializeAllocation({
+      roundNumber: 0, courts: [], waiting: checked.sort(comparePriority),
+    }));
     return;
   }
   const assigned = new Set(alloc.courts.flatMap((c) => c.players.map((p) => p.id)));
-  sendJson(res, 200, serializeAllocation({ ...alloc, waiting: checked.filter((p) => !assigned.has(p.id)) }));
+  sendJson(res, 200, serializeAllocation({
+    ...alloc,
+    waiting: checked.filter((p) => !assigned.has(p.id)).sort(comparePriority),
+  }));
 }
 
 async function handlePlayerAllocation(res: VercelResponse, sessionId: string): Promise<void> {
@@ -729,7 +734,10 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
     loadCheckedInPlayers(sessionId, nightId),
   ]);
   const assigned = new Set(fresh.courts.flatMap((c) => c.players.map((p) => p.id)));
-  sendJson(res, 200, serializeAllocation({ ...fresh, waiting: checked.filter((p) => !assigned.has(p.id)) }));
+  sendJson(res, 200, serializeAllocation({
+    ...fresh,
+    waiting: checked.filter((p) => !assigned.has(p.id)).sort(comparePriority),
+  }));
 }
 
 async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -858,7 +866,7 @@ function refreshGeneratedAllocation(allocation: RoundAllocation): void {
     player.roundsWaiting += 1;
     player.sittingOut = false;
   }
-  allocation.waiting.sort((left, right) => left.checkedInAt.localeCompare(right.checkedInAt));
+  allocation.waiting.sort(comparePriority);
 }
 
 function createManualAllocation(

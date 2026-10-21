@@ -278,6 +278,39 @@ test('new arrivals keep priority until they play and sit-outs appear only once',
   assert.equal(new Set(waitingIds).size, waitingIds.length, 'no player should sit out twice in one round');
 });
 
+test('players return to the back of the queue after playing', () => {
+  const players = Array.from({ length: 5 }, (_, index) =>
+    makePlayer(
+      `player-${index}`,
+      `Player ${index}`,
+      'MALE',
+      '10',
+      new Date(Date.UTC(2026, 0, 1, 0, index === 4 ? 0 : index + 1)).toISOString(),
+      index === 4 ? 0 : 1,
+      0,
+    ),
+  );
+  players.forEach((player, index) => {
+    player.lastPlayedRound = index === 4 ? 2 : 1;
+  });
+  players[0].lastPartner = players[1].id;
+  players[1].lastPartner = players[0].id;
+  players[2].lastPartner = players[3].id;
+  players[3].lastPartner = players[2].id;
+
+  const allocation = generateRound(2, players, null, false, 1);
+  const assignedIds = allocation.courts.flatMap((court) =>
+    court.players.map((player) => player.id),
+  );
+
+  assert.deepEqual(
+    assignedIds.sort(),
+    players.slice(0, 4).map((player) => player.id).sort(),
+    'pairing improvements must not skip players who are earlier in the sit-out queue',
+  );
+  assert.deepEqual(allocation.waiting.map((player) => player.id), ['player-4']);
+});
+
 test('check-in priority is persisted until an assigned game consumes it', () => {
   const schema = readSource('schema.ts');
   const repo2 = readSource('repo2.ts');
@@ -285,6 +318,9 @@ test('check-in priority is persisted until an assigned game consumes it', () => 
 
   assert.match(schema, /priority_game boolean not null default false/i);
   assert.match(repo2, /priorityGame:\s*r\.priority_game === true/);
+  assert.match(repo2, /as last_played_round/);
+  assert.match(repo2, /lastPlayedRound:\s*Number\(r\.last_played_round/);
+  assert.match(router, /waiting: checked\.filter[\s\S]*?\.sort\(comparePriority\)/);
   assert.match(router, /set checked_in_at = now\(\), priority_game = true/i);
   assert.match(
     router,

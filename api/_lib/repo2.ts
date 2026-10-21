@@ -48,7 +48,8 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
     order by o.player_id limit 1) as partner,
     (select array_agg(o.player_id::text) from venue_round_players o
     where o.round_id = rp.round_id and o.court_number is not distinct from rp.court_number
-    and o.team is distinct from rp.team) as opps
+    and o.team is distinct from rp.team) as opps,
+    (select r.round_number from venue_rounds r where r.id = rp.round_id) as last_played_round
     from venue_round_players rp
     where rp.player_id = p.id
     and rp.round_id = (select r.id from venue_round_players own_rp
@@ -83,6 +84,7 @@ function toPlayer(r: any): Player {
     roundsWaiting: Number(r.rounds_waiting ?? 0),
     sittingOut: Number(r.sit_out_rounds ?? 0) > 0,
     priorityGame: r.priority_game === true,
+    lastPlayedRound: Number(r.last_played_round ?? 0),
     pairCount: parseCounts(r.pairs), oppCount: parseCounts(r.opps),
     lastPartner: r.last_partner ? String(r.last_partner) : null,
     lastOpponents: parseIds(r.last_opps),

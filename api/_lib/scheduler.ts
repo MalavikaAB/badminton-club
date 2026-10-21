@@ -238,6 +238,7 @@ function selectBestPlayers(
     for (const incoming of waiting) {
       for (let i = 0; i < selected.length; i++) {
         const outgoing = selected[i];
+        if (comparePriority(incoming, outgoing) > 0) continue;
 
         const next = [...selected];
         next[i] = incoming;
@@ -777,9 +778,11 @@ export function renumberCourts(
  *
  * Priority order:
  *
- * 1. Longest waiting
- * 2. Earlier check-in
- * 3. Name
+ * 1. One-game priority for new arrivals
+ * 2. Longest waiting
+ * 3. Earliest last game
+ * 4. Earlier check-in
+ * 5. Name
  *
  * This keeps the externally visible queue deterministic.
  */
@@ -799,6 +802,13 @@ export function comparePriority(
       b.roundsWaiting -
       a.roundsWaiting
     );
+  }
+
+  if (
+    (a.lastPlayedRound ?? 0) !==
+    (b.lastPlayedRound ?? 0)
+  ) {
+    return (a.lastPlayedRound ?? 0) - (b.lastPlayedRound ?? 0);
   }
 
   if (
