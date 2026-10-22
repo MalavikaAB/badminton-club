@@ -293,6 +293,30 @@ test('separate divisions allocate courts to the players with fewer games', () =>
   );
 });
 
+test('separate divisions fill an available court with players left across divisions', () => {
+  const players = [
+    ...Array.from({ length: 2 }, (_, index) =>
+      makePlayer(`a-man-${index}`, `A Man ${index}`, 'MALE', 'A',
+        '2026-01-01T00:00:00.000Z', 0, 0),
+    ),
+    makePlayer('a-woman', 'A Woman', 'FEMALE', 'A',
+      '2026-01-01T00:00:00.000Z', 0, 0),
+    makePlayer('b-man', 'B Man', 'MALE', 'B',
+      '2026-01-01T00:00:00.000Z', 0, 0),
+    ...Array.from({ length: 2 }, (_, index) =>
+      makePlayer(`b-woman-${index}`, `B Woman ${index}`, 'FEMALE', 'B',
+        '2026-01-01T00:00:00.000Z', 0, 0),
+    ),
+  ];
+
+  const allocation = generateRound(1, players, null, true, 2);
+
+  assert.equal(allocation.courts.length, 1);
+  assert.equal(allocation.courts[0].players.length, 4);
+  assert.equal(new Set(allocation.courts[0].players.map((player) => player.division)).size, 2);
+  assert.equal(allocation.waiting.length, 2);
+});
+
 test('a player who sat out last round plays when a legal alternative exists', () => {
   const players = [
     ...Array.from({ length: 4 }, (_, index) =>
@@ -407,7 +431,7 @@ test('check-in priority is persisted until an assigned game consumes it', () => 
   assert.match(repo2, /as last_played_round/);
   assert.match(repo2, /lastPlayedRound:\s*Number\(r\.last_played_round/);
   assert.match(router, /waiting: checked\.filter[\s\S]*?\.sort\(comparePriority\)/);
-  assert.match(router, /set checked_in_at = now\(\), priority_game = true/i);
+  assert.match(router, /set checked_in_at = now\(\), checked_out_at = null, priority_game = true/i);
   assert.match(
     router,
     /set priority_game = false[\s\S]*?player_id = any\(\$\{assignedIds\}::uuid\[\]\)[\s\S]*?checked_in_at <= \$\{roundCreatedAt\}/i,

@@ -57,7 +57,7 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
     where own_rp.player_id = p.id and r.night_id = ${nightId}
     order by r.round_number desc limit 1)
     limit 1) lp on true
-    where ci.session_id = ${sessionId} and p.active = true
+    where ci.session_id = ${sessionId} and ci.checked_out_at is null and p.active = true
     order by ci.checked_in_at`;
   return (rows as any[]).map((r) => toPlayer(r));
 }
@@ -79,7 +79,8 @@ function toPlayer(r: any): Player {
   const checkedInAt = r.checked_in_at ? new Date(r.checked_in_at).toISOString() : EPOCH;
   return {
     id: String(r.id), name: r.name, gender: r.gender as Gender,
-    division: String(r.division ?? ''), beginner: r.beginner === true, checkedInAt,
+    division: String(r.division ?? ''), beginner: r.beginner === true,
+    preferredPartnerId: null, preferredFormat: 'NONE', checkedInAt,
     gamesPlayed: Number(r.games_played ?? 0),
     roundsWaiting: Number(r.rounds_waiting ?? 0),
     sittingOut: Number(r.sit_out_rounds ?? 0) > 0,

@@ -76,7 +76,7 @@ export function generateRound(
   const ordered = [...active].sort(comparePriority);
   const courtCount = Math.min(
     requestedCourtCount,
-    legalCourtCapacity(active, separateDivisions),
+    legalCourtCapacity(active),
   );
 
   if (courtCount === 0) {
@@ -539,8 +539,8 @@ function waitingAfter(
 }
 
 /**
- * Generate a round where each court contains players from a
- * single division.
+ * Prefer single-division courts, then use cross-division leftovers
+ * to fill any remaining legal courts.
  */
 function generateSeparatedRound(
   roundNumber: number,
@@ -560,6 +560,10 @@ function generateSeparatedRound(
     pool,
     capacity: legalCourtCapacity(pool),
   }));
+  const strictCourtLimit = Math.min(
+    courtCount,
+    groups.reduce((total, group) => total + group.capacity, 0),
+  );
 
   type DivisionPlan = {
     selected: Player[];
@@ -616,7 +620,7 @@ function generateSeparatedRound(
     for (const [courtsUsed, previous] of plans) {
       for (let count = 0; count < groupPlans.length; count++) {
         const groupPlan = groupPlans[count];
-        if (!groupPlan || courtsUsed + count > courtCount) continue;
+        if (!groupPlan || courtsUsed + count > strictCourtLimit) continue;
         const combined = [...previous, groupPlan];
         const totalCourts = courtsUsed + count;
         const current = next.get(totalCourts);
@@ -629,14 +633,40 @@ function generateSeparatedRound(
     for (const [count, plan] of next) plans.set(count, plan);
   }
 
-  const winningPlan = plans.get(courtCount);
-  const all = groups.flatMap((group, index) => {
+  const strictCourtsUsed = Math.max(...plans.keys());
+  const winningPlan = plans.get(strictCourtsUsed);
+  const strictCourts = groups.flatMap((group, index) => {
     const divisionPlan = winningPlan?.[index];
     if (!divisionPlan || divisionPlan.selected.length === 0) return [];
     const divisionCourtCount = divisionPlan.selected.length / 4;
     return buildBestFormatCourts(divisionPlan.selected, divisionCourtCount);
   });
 
+  const strictPlayerIds = new Set(
+    strictCourts.flatMap((court) => court.players.map((player) => player.id)),
+  );
+  const remaining = ordered.filter((player) => !strictPlayerIds.has(player.id));
+  const extraCourtsAvailable = Math.min(
+    courtCount - strictCourts.length,
+    legalCourtCapacity(remaining),
+  );
+  const extraCourts: CourtAssignment[] = [];
+  for (let count = extraCourtsAvailable; count > 0; count--) {
+    const requiredPlayers = count * 4;
+    const selected = selectBestPlayers(
+      remaining,
+      requiredPlayers,
+      remaining.slice(0, Math.min(
+        remaining.length,
+        requiredPlayers + count * EXTRA_CANDIDATES_PER_COURT,
+      )),
+    );
+    if (!canFieldCourtCount(selected, count)) continue;
+    extraCourts.push(...buildBestFormatCourts(selected, count));
+    break;
+  }
+
+  const all = [...strictCourts, ...extraCourts];
   const numbered = renumberCourts(all);
 
   return {

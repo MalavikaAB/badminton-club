@@ -609,9 +609,9 @@ async function loadStatistics() {
             }).join('');
 
             const tallyTable = `
-      <div class="statistics-table-scroll" role="region" aria-label="Player sit-out tally; 1 = played, 0 = sat out, x = had not arrived yet" tabindex="0">
+      <div class="statistics-table-scroll" role="region" aria-label="Player sit-out tally; 1 = played, 0 = sat out, x = not checked in or checked out" tabindex="0">
         <table class="statistics-table">
-          <caption class="visually-hidden">Per-player sit-out tally: 1 means played, 0 means sat out, x means had not arrived yet. Shows total sits, longest consecutive sit streak, and the round-by-round sequence per round.</caption>
+          <caption class="visually-hidden">Per-player sit-out tally: 1 means played, 0 means sat out, x means not checked in yet or already checked out. Shows total sits, longest consecutive sit streak, and the round-by-round sequence per round.</caption>
           <thead><tr><th scope="col">Player</th><th scope="col" class="statistics-games">Games</th><th scope="col">Total sits</th><th scope="col">Max consecutive</th><th scope="col">1/0/x sequence</th></tr></thead>
           <tbody>${tallyRows}</tbody>
         </table>
@@ -619,7 +619,7 @@ async function loadStatistics() {
 
             const legend = document.createElement('p');
             legend.className = 'statistics-legend';
-            legend.innerHTML = '<strong>Sit-out tally per player:</strong> 1 = played, 0 = sat out, x = had not arrived yet. Shows total times sat out, longest consecutive sit streak, and the round-by-round sequence.';
+            legend.innerHTML = '<strong>Sit-out tally per player:</strong> 1 = played, 0 = sat out, x = not checked in yet or already checked out. Shows total times sat out, longest consecutive sit streak, and the round-by-round sequence.';
             const tallyContainer = document.createElement('div');
             tallyContainer.innerHTML = tallyTable;
             matrix.parentNode.appendChild(legend);
@@ -1451,20 +1451,6 @@ function changeRoundDuration() {
   renderRoundTimer();
 }
 
-// Mirrors the API rule in api/_lib/scheduler.ts canSwapFormat: replacements
-// must preserve the court's gender-specific format.
-function canReplaceIn(formatKey, outgoingGender, incomingGender) {
-  return formatKey !== 'OPEN_DOUBLES' && outgoingGender === incomingGender;
-}
-
-function canKeepDivision(outgoingCourt, outgoing, incoming, incomingCourt = null) {
-  if (!document.querySelector('#separate-divisions').checked) return true;
-  return Boolean(outgoing && incoming
-    && incoming.division === outgoing.division
-    && outgoingCourt?.players.every(player => player.division === outgoing.division)
-    && (!incomingCourt || incomingCourt.players.every(player => player.division === outgoing.division)));
-}
-
 // The API returns the rejection reason as {"message":"..."}; show that
 // instead of the raw JSON blob so an organiser can see why the swap was refused.
 async function readErrorMessage(response) {
@@ -1486,15 +1472,10 @@ function openSwapModal(outPlayerId) {
   const onCourtReplacements = rounds
     .filter(otherCourt => otherCourt.court !== court?.court)
     .flatMap(otherCourt => otherCourt.players
-      .filter(player => player.id !== outPlayerId
-        && (!outgoing || canReplaceIn(court.formatKey, outgoing.gender, player.gender))
-        && (!outgoing || canReplaceIn(otherCourt.formatKey, player.gender, outgoing.gender))
-        && canKeepDivision(court, outgoing, player, otherCourt))
+      .filter(player => player.id !== outPlayerId)
       .map(player => ({ ...player, source: 'Court ' + otherCourt.court })));
   const waitingReplacements = waiting
-    .filter(player => !player.sittingOut
-      && (!outgoing || canReplaceIn(court.formatKey, outgoing.gender, player.gender))
-      && canKeepDivision(court, outgoing, player))
+    .filter(player => !player.sittingOut)
     .map(player => ({ ...player, source: 'Waiting' }));
   const replacements = [...onCourtReplacements, ...waitingReplacements];
   swapOutPlayerId = outPlayerId;
@@ -1518,14 +1499,6 @@ async function swapQueuePlayer(outPlayerId, inPlayerId) {
   const outgoing = court?.players.find(player => player.id === outPlayerId);
   const incoming = waiting.find(player => player.id === inPlayerId && !player.sittingOut);
   if (!court || !outgoing || !incoming) return;
-  if (!canReplaceIn(court.formatKey, outgoing.gender, incoming.gender)) {
-    window.alert(`Choose a player who matches this ${court.format.toLowerCase()} court.`);
-    return;
-  }
-  if (!canKeepDivision(court, outgoing, incoming)) {
-    window.alert('When divisions are kept separate, a replacement must be from the same division as everyone on that court.');
-    return;
-  }
   selectedQueuePlayerId = null;
   selectedCourtPlayerId = null;
   updateSwapSelection();
@@ -1537,21 +1510,9 @@ async function swapQueuePlayer(outPlayerId, inPlayerId) {
 async function swapAssignedPlayers(outPlayerId, inPlayerId) {
   const outgoingCourt = rounds.find(court => court.players.some(player => player.id === outPlayerId));
   const incomingCourt = rounds.find(court => court.players.some(player => player.id === inPlayerId));
-  const outgoing = outgoingCourt?.players.find(player => player.id === outPlayerId);
-  const incoming = incomingCourt?.players.find(player => player.id === inPlayerId);
-  if (!outgoingCourt || !incomingCourt || !outgoing || !incoming) return;
+  if (!outgoingCourt || !incomingCourt) return;
   if (outgoingCourt.court === incomingCourt.court) {
     window.alert('Choose a player from a different court.');
-    return;
-  }
-  if (!canReplaceIn(outgoingCourt.formatKey, outgoing.gender, incoming.gender)
-    || !canReplaceIn(incomingCourt.formatKey, incoming.gender, outgoing.gender)) {
-    window.alert('Those players do not match both court formats.');
-    return;
-  }
-  if (!canKeepDivision(outgoingCourt, outgoing, incoming, incomingCourt)
-    || !canKeepDivision(incomingCourt, incoming, outgoing, outgoingCourt)) {
-    window.alert('When divisions are kept separate, both courts must remain in one division.');
     return;
   }
   selectedQueuePlayerId = null;
@@ -1566,8 +1527,7 @@ async function swapPlayers(inPlayerId, outPlayerId = swapOutPlayerId) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       outPlayerId,
-      inPlayerId,
-      separateDivisions: document.querySelector('#separate-divisions').checked
+      inPlayerId
     })
   });
   closeSwapModal();

@@ -47,10 +47,12 @@ create table if not exists venue_check_ins (
   session_id text not null references venue_sessions(id) on delete cascade,
   player_id uuid not null references players(id) on delete cascade,
   checked_in_at timestamptz not null default now(),
+  checked_out_at timestamptz,
   sit_out_rounds integer not null default 0,
   priority_game boolean not null default false,
   primary key (session_id, player_id)
 );
+alter table venue_check_ins add column if not exists checked_out_at timestamptz;
 alter table venue_check_ins add column if not exists sit_out_rounds integer not null default 0;
 alter table venue_check_ins add column if not exists priority_game boolean not null default false;
 create table if not exists venue_nights (

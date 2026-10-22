@@ -329,7 +329,8 @@ async function handleCheckIns(
   if (rest.length === 0) {
     if (method === 'GET') {
       await resetStaleNight(sessionId);
-      const rows = await sql`select player_id, sit_out_rounds from venue_check_ins where session_id = ${sessionId}`;
+      const rows = await sql`select player_id, sit_out_rounds from venue_check_ins
+        where session_id = ${sessionId} and checked_out_at is null`;
       sendJson(res, 200, (rows as any[]).map((r) => ({
         playerId: String(r.player_id), sittingOut: Number(r.sit_out_rounds ?? 0) > 0,
       })));
@@ -379,7 +380,7 @@ async function handleCheckIns(
         sql`insert into venue_check_ins (session_id, player_id, sit_out_rounds, priority_game)
           values (${sessionId}, ${playerId}::uuid, 0, true)
           on conflict (session_id, player_id) do update
-          set checked_in_at = now(), priority_game = true`,
+          set checked_in_at = now(), checked_out_at = null, priority_game = true`,
         ensureOpenNight(sessionId),
       ]);
       await sql`update players set rounds_waiting = 0 where id = ${playerId}`;
@@ -387,7 +388,8 @@ async function handleCheckIns(
       return;
     }
     if (method === 'DELETE') {
-      await sql`delete from venue_check_ins where session_id = ${sessionId} and player_id = ${playerId}`;
+      await sql`update venue_check_ins set checked_out_at = now()
+        where session_id = ${sessionId} and player_id = ${playerId}`;
       sendJson(res, 200, { ok: true });
       return;
     }
@@ -491,7 +493,7 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
       left join venue_round_players rp on rp.round_id = r.id
       where n.session_id = ${sessionId} and n.status = 'OPEN'
       order by r.round_number`,
-    sql`select player_id, checked_in_at from venue_check_ins where session_id = ${sessionId}`,
+    sql`select player_id, checked_in_at, checked_out_at from venue_check_ins where session_id = ${sessionId}`,
   ]);
 
   const partnersByPlayer = new Map<string, Record<string, number>>();
@@ -516,8 +518,9 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
     allRoundNumbers.add(roundNumber);
     const playerId = row.player_id ? String(row.player_id) : null;
     if (playerId) {
-      if (!playerPlayedRounds.has(playerId)) playerPlayedRounds.set(playerId, new Set());
-      playerPlayedRounds.get(playerId).add(roundNumber);
+      const playedRounds = playerPlayedRounds.get(playerId) ?? new Set<number>();
+      playedRounds.add(roundNumber);
+      playerPlayedRounds.set(playerId, playedRounds);
     }
   }
 
@@ -531,8 +534,13 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
     }
   }
   const playerCheckedInAt = new Map<string, Date>();
+  const playerCheckedOutAt = new Map<string, Date>();
   for (const row of checkInRows as any[]) {
-    playerCheckedInAt.set(String(row.player_id), new Date(row.checked_in_at));
+    const playerId = String(row.player_id);
+    playerCheckedInAt.set(playerId, new Date(row.checked_in_at));
+    if (row.checked_out_at) {
+      playerCheckedOutAt.set(playerId, new Date(row.checked_out_at));
+    }
   }
 
   // Compute per-player sit-out stats
@@ -541,7 +549,7 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
     const playedRounds = playerPlayedRounds.get(playerId) ?? new Set<number>();
     const gamesPlayed = Number(row.games_played) || 0;
     const roundsPlayed = Number((roundRows as any[])[0]?.rounds_played ?? 0);
-    // Build 1/0/x tally per round: 1 = played, 0 = sat out, null = had not arrived yet
+    // Build 1/0/x tally per round: 1 = played, 0 = sat out, null = unavailable
     const sits: (number | null)[] = [];
     let maxConsecutiveSits = 0;
     let currentStreak = 0;
@@ -553,8 +561,10 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
       } else {
         const rCreated = roundCreatedAt.get(round);
         const pCheckedIn = playerCheckedInAt.get(playerId);
-        if (rCreated && pCheckedIn && rCreated < pCheckedIn) {
-          sitValue = null; // x — had not checked in yet when this round was created
+        const pCheckedOut = playerCheckedOutAt.get(playerId);
+        if ((rCreated && pCheckedIn && rCreated < pCheckedIn)
+          || (rCreated && pCheckedOut && rCreated > pCheckedOut)) {
+          sitValue = null; // x — not checked in, or already checked out
         } else {
           sitValue = 0; // sat out
         }
@@ -593,43 +603,6 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
   });
 }
 
-type SwapLineupPlayer = { playerId: string; team: string; gender: Gender; division: string };
-
-function mapSwapLineup(rows: any[]): SwapLineupPlayer[] {
-  return rows.map((row) => ({
-    playerId: String(row.player_id),
-    team: String(row.team),
-    gender: row.gender as Gender,
-    division: String(row.division),
-  }));
-}
-
-function replaceSwapLineupPlayer(
-  lineup: SwapLineupPlayer[],
-  outgoingPlayerId: string,
-  incomingPlayer: Omit<SwapLineupPlayer, 'team'>,
-): SwapLineupPlayer[] {
-  return lineup.map((player) => player.playerId === outgoingPlayerId
-    ? { ...incomingPlayer, team: player.team }
-    : player);
-}
-
-function isValidSwapLineup(format: GameFormat, lineup: SwapLineupPlayer[]): boolean {
-  const teamA = lineup.filter((player) => player.team === 'A');
-  const teamB = lineup.filter((player) => player.team === 'B');
-  if (teamA.length !== 2 || teamB.length !== 2 || lineup.length !== 4) return false;
-  if (format === 'OPEN_DOUBLES') return false;
-  if (format === 'MENS_DOUBLES') return lineup.every((player) => player.gender === 'MALE');
-  if (format === 'WOMENS_DOUBLES') return lineup.every((player) => player.gender === 'FEMALE');
-  const isMixedTeam = (team: SwapLineupPlayer[]) => team.filter((player) => player.gender === 'MALE').length === 1
-    && team.filter((player) => player.gender === 'FEMALE').length === 1;
-  return isMixedTeam(teamA) && isMixedTeam(teamB);
-}
-
-function hasSingleDivision(lineup: SwapLineupPlayer[]): boolean {
-  return lineup.length === 4 && lineup.every((player) => player.division === lineup[0].division);
-}
-
 async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: string): Promise<void> {
   const sql = db();
   const body = await readJson(req);
@@ -644,10 +617,8 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
       order by r.round_number desc limit 1
     )
     select latest.id as round_id, latest.round_number, latest.night_id,
-      rp.player_id, rp.court_number, rp.format, rp.team, p.gender, p.division,
+      rp.player_id, rp.court_number, rp.format, rp.team,
       incoming.id as incoming_profile_id,
-      incoming.gender as incoming_gender,
-      incoming.division as incoming_division,
       ci.player_id as incoming_checkin_id,
       ci.sit_out_rounds as incoming_sit_out_rounds
     from latest
@@ -655,6 +626,7 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
     left join players p on p.id = rp.player_id
     left join players incoming on incoming.id = ${inId}
     left join venue_check_ins ci on ci.session_id = ${sessionId} and ci.player_id = incoming.id
+      and ci.checked_out_at is null
     order by rp.court_number, rp.team`;
   const rows = context as any[];
   if (rows.length === 0) { sendJson(res, 400, { message: 'No round to swap' }); return; }
@@ -665,45 +637,12 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
   const outgoing = rows.find((row) => String(row.player_id) === outId);
   if (!outgoing) { sendJson(res, 400, { message: 'That player is not on a court' }); return; }
   if (!contextRow.incoming_profile_id) { sendJson(res, 400, { message: 'Replacement player not found' }); return; }
-  const incomingGender = contextRow.incoming_gender as Gender;
-  const incomingDivision = String(contextRow.incoming_division);
-  const separateDivisions = body?.separateDivisions !== false;
   const assignedIncoming = rows.find((row) => String(row.player_id) === inId);
   if (assignedIncoming && Number(assignedIncoming.court_number) === Number(outgoing.court_number)) {
     sendJson(res, 400, { message: 'Choose a player from another court or the waiting list' });
     return;
   }
-  const outgoingLineup = mapSwapLineup(rows.filter((row) => Number(row.court_number) === Number(outgoing.court_number)));
-  const projectedOutgoing = replaceSwapLineupPlayer(outgoingLineup, outId, {
-    playerId: inId,
-    gender: incomingGender,
-    division: incomingDivision,
-  });
-  if (!isValidSwapLineup(outgoing.format as GameFormat, projectedOutgoing)) {
-    sendJson(res, 400, { message: `That replacement would make this ${String(outgoing.format).toLowerCase().replaceAll('_', ' ')} lineup invalid` });
-    return;
-  }
-  if (separateDivisions && !hasSingleDivision(projectedOutgoing)) {
-    sendJson(res, 400, { message: 'When divisions are kept separate, all players on a court must be from the same division' });
-    return;
-  }
-
   if (assignedIncoming) {
-    const incomingLineup = mapSwapLineup(rows.filter((row) => Number(row.court_number) === Number(assignedIncoming.court_number)));
-    const projectedIncoming = replaceSwapLineupPlayer(incomingLineup, inId, {
-      playerId: outId,
-      gender: outgoing.gender as Gender,
-      division: String(outgoing.division),
-    });
-    if (!isValidSwapLineup(assignedIncoming.format as GameFormat, projectedIncoming)) {
-      sendJson(res, 400, { message: 'That swap would make the other court lineup invalid' });
-      return;
-    }
-    if (separateDivisions && !hasSingleDivision(projectedIncoming)) {
-      sendJson(res, 400, { message: 'When divisions are kept separate, all players on a court must be from the same division' });
-      return;
-    }
-
     await sql.begin(async (tx: any) => {
       await tx`delete from venue_round_players
         where round_id = ${roundId} and player_id in (${outId}, ${inId})`;
@@ -747,11 +686,11 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   const roundNumber = Number(body?.roundNumber ?? 0);
   const separate = body?.separateDivisions === true;
   const formats = (Array.isArray(body?.courtFormats) ? body.courtFormats : [])
-    .map((f) => {
+    .map((f: unknown): GameFormat | null => {
       if (f === 'MENS_DOUBLES' || f === 'WOMENS_DOUBLES' || f === 'MIXED_DOUBLES') return f;
       return null;
     })
-    .filter((f): f is NonNullable<typeof f> => f !== null);
+    .filter((f: GameFormat | null): f is GameFormat => f !== null);
   if (sessionId) await resetStaleNight(sessionId);
   const nightId = sessionId ? await ensureOpenNight(sessionId) : null;
   if (nightId) await syncPairCounts(nightId);

@@ -36,6 +36,7 @@ export async function latestRound(
     const at = r.checked_in_at ? new Date(r.checked_in_at).toISOString() : EPOCH;
     const p: Player = { id: pid, name: r.name, gender: r.gender as Gender,
       division: String(r.division ?? ''), beginner: r.beginner === true,
+      preferredPartnerId: null, preferredFormat: 'NONE',
       checkedInAt: at, gamesPlayed: Number(r.games_played ?? 0),
       roundsWaiting: Number(r.rounds_waiting ?? 0),
       sittingOut: Number(r.sit_out_rounds ?? 0) > 0, pairCount: {}, oppCount: {},
@@ -71,4 +72,3 @@ export async function latestRound(
   }
   return { roundNumber, courts, waiting: [] };
 }
-
