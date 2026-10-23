@@ -703,7 +703,9 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
       gender: p.gender as Gender, division: String(p.division ?? ''),
       beginner: p.beginner === true && String(p.division ?? '') === '10',
       checkedInAt: p.checkedInAt ?? EPOCH, gamesPlayed: Number(p.gamesPlayed ?? 0),
+      roundsPresent: Number(p.roundsPresent ?? 0),
       roundsWaiting: Number(p.roundsWaiting ?? 0),
+      priorityGame: p.priorityGame === true,
       sittingOut: p.sittingOut === true, pairCount: {}, oppCount: {},
       lastPartner: null, lastOpponents: [],
     }));
@@ -795,13 +797,16 @@ function refreshGeneratedAllocation(allocation: RoundAllocation): void {
       const team = court.teamA.some((member) => member.id === player.id) ? court.teamA : court.teamB;
       const opponents = team === court.teamA ? court.teamB : court.teamA;
       player.gamesPlayed += 1;
+      player.roundsPresent = (player.roundsPresent ?? 0) + 1;
       player.roundsWaiting = 0;
       player.sittingOut = false;
+      player.priorityGame = false;
       player.lastPartner = team.find((member) => member.id !== player.id)?.id ?? null;
       player.lastOpponents = opponents.map((opponent) => opponent.id);
     }
   }
   for (const player of allocation.waiting) {
+    player.roundsPresent = (player.roundsPresent ?? 0) + 1;
     player.roundsWaiting += 1;
     player.sittingOut = false;
   }

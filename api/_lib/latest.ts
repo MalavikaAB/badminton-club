@@ -21,6 +21,9 @@ export async function latestRound(
   const roundNumber = Number((latest as any[])[0].round_number);
   const rows = await sql`select rp.court_number, rp.format, rp.team, p.id, p.name, p.gender, p.division, p.beginner,
     p.rounds_waiting, ci.checked_in_at, coalesce(ci.sit_out_rounds, 0) as sit_out_rounds,
+    coalesce(ci.priority_game, false) as priority_game,
+    (select count(*)::int from venue_rounds present_round
+    where present_round.night_id = ${nightId} and present_round.created_at >= ci.checked_in_at) as rounds_present,
     (select count(*) from venue_round_players games join venue_rounds gr on gr.id = games.round_id
     where games.player_id = p.id and gr.night_id = ${nightId}) as games_played
     from venue_round_players rp join players p on p.id = rp.player_id
@@ -37,7 +40,9 @@ export async function latestRound(
     const p: Player = { id: pid, name: r.name, gender: r.gender as Gender,
       division: String(r.division ?? ''), beginner: r.beginner === true,
       preferredPartnerId: null, preferredFormat: 'NONE',
+      priorityGame: r.priority_game === true,
       checkedInAt: at, gamesPlayed: Number(r.games_played ?? 0),
+      roundsPresent: Number(r.rounds_present ?? 0),
       roundsWaiting: Number(r.rounds_waiting ?? 0),
       sittingOut: Number(r.sit_out_rounds ?? 0) > 0, pairCount: {}, oppCount: {},
       lastPartner: null, lastOpponents: [] };

@@ -287,7 +287,11 @@ function compareSelectionQuality(left: Player[], right: Player[]): number {
 
   const priorityDifference =
     priorityGameCount(left) - priorityGameCount(right);
-  return priorityDifference || scoreSelection(left) - scoreSelection(right);
+  return (
+    priorityDifference ||
+    totalGamesPerRoundPresent(right) - totalGamesPerRoundPresent(left) ||
+    scoreSelection(left) - scoreSelection(right)
+  );
 }
 
 function consecutiveSitOutCount(players: Player[]): number {
@@ -569,7 +573,7 @@ function generateSeparatedRound(
     selected: Player[];
     consecutiveSitOuts: number;
     priorityGames: number;
-    totalGames: number;
+    gamesPerRoundPresent: number;
     totalWaiting: number;
     lastPlayedRounds: number;
   };
@@ -582,7 +586,7 @@ function generateSeparatedRound(
           selected: [],
           consecutiveSitOuts: 0,
           priorityGames: 0,
-          totalGames: 0,
+          gamesPerRoundPresent: 0,
           totalWaiting: 0,
           lastPlayedRounds: 0,
         };
@@ -603,7 +607,7 @@ function generateSeparatedRound(
         selected,
         consecutiveSitOuts: consecutiveSitOutCount(selected),
         priorityGames: priorityGameCount(selected),
-        totalGames: selected.reduce((sum, player) => sum + player.gamesPlayed, 0),
+        gamesPerRoundPresent: totalGamesPerRoundPresent(selected),
         totalWaiting: selected.reduce((sum, player) => sum + player.roundsWaiting, 0),
         lastPlayedRounds: selected.reduce(
           (sum, player) => sum + (player.lastPlayedRound ?? 0),
@@ -684,7 +688,7 @@ function compareDivisionPlans(
   left: Array<{
     consecutiveSitOuts: number;
     priorityGames: number;
-    totalGames: number;
+    gamesPerRoundPresent: number;
     totalWaiting: number;
     lastPlayedRounds: number;
     selected: Player[];
@@ -692,7 +696,7 @@ function compareDivisionPlans(
   right: Array<{
     consecutiveSitOuts: number;
     priorityGames: number;
-    totalGames: number;
+    gamesPerRoundPresent: number;
     totalWaiting: number;
     lastPlayedRounds: number;
     selected: Player[];
@@ -702,14 +706,14 @@ function compareDivisionPlans(
     (total, item) => ({
       consecutiveSitOuts: total.consecutiveSitOuts + item.consecutiveSitOuts,
       priorityGames: total.priorityGames + item.priorityGames,
-      totalGames: total.totalGames + item.totalGames,
+      gamesPerRoundPresent: total.gamesPerRoundPresent + item.gamesPerRoundPresent,
       totalWaiting: total.totalWaiting + item.totalWaiting,
       lastPlayedRounds: total.lastPlayedRounds + item.lastPlayedRounds,
     }),
     {
       consecutiveSitOuts: 0,
       priorityGames: 0,
-      totalGames: 0,
+      gamesPerRoundPresent: 0,
       totalWaiting: 0,
       lastPlayedRounds: 0,
     },
@@ -720,7 +724,7 @@ function compareDivisionPlans(
   return (
     a.consecutiveSitOuts - b.consecutiveSitOuts ||
     a.priorityGames - b.priorityGames ||
-    b.totalGames - a.totalGames ||
+    b.gamesPerRoundPresent - a.gamesPerRoundPresent ||
     a.totalWaiting - b.totalWaiting ||
     b.lastPlayedRounds - a.lastPlayedRounds
   );
@@ -745,7 +749,7 @@ export function renumberCourts(
  * Priority order:
  *
  * 1. One-game priority for new arrivals
- * 2. Fewest games played
+ * 2. Fewest games per round present
  * 3. Longest waiting
  * 4. Earliest last game
  * 5. Earlier check-in
@@ -765,8 +769,10 @@ export function comparePriority(
     return a.priorityGame ? -1 : 1;
   }
 
-  if (a.gamesPlayed !== b.gamesPlayed) {
-    return a.gamesPlayed - b.gamesPlayed;
+  const rateDifference =
+    gamesPerRoundPresent(a) - gamesPerRoundPresent(b);
+  if (rateDifference !== 0) {
+    return rateDifference;
   }
 
   if (
@@ -795,6 +801,17 @@ export function comparePriority(
 
   return a.name.localeCompare(
     b.name,
+  );
+}
+
+function gamesPerRoundPresent(player: Player): number {
+  return player.gamesPlayed / Math.max(1, player.roundsPresent ?? 0);
+}
+
+function totalGamesPerRoundPresent(players: Player[]): number {
+  return players.reduce(
+    (total, player) => total + gamesPerRoundPresent(player),
+    0,
   );
 }
 

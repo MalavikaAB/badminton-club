@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { bestSplit, courtCost, relationshipRepeatPenalty } from '../api/_lib/pairing2.js';
-import { generateRound } from '../api/_lib/scheduler.js';
+import { comparePriority, generateRound } from '../api/_lib/scheduler.js';
 import { qualityReport, summarisePairings } from '../api/_lib/pairingQuality.js';
 import { makePlayer, type Player } from '../api/_lib/types.js';
 
@@ -270,6 +270,40 @@ test('a new arrival gets their first game before returning players', () => {
   assert(assignedIds.has('woman-4'));
 });
 
+test('players are ranked by games per round present after the arrival boost', () => {
+  const moreGamesButLowerRate = makePlayer(
+    'lower-rate',
+    'Lower Rate',
+    'MALE',
+    '10',
+    '2026-01-01T00:00:00.000Z',
+    4,
+    0,
+  );
+  moreGamesButLowerRate.roundsPresent = 9;
+  const fewerGamesButHigherRate = makePlayer(
+    'higher-rate',
+    'Higher Rate',
+    'MALE',
+    '10',
+    '2026-01-01T00:01:00.000Z',
+    3,
+    0,
+  );
+  fewerGamesButHigherRate.roundsPresent = 6;
+
+  assert(
+    comparePriority(moreGamesButLowerRate, fewerGamesButHigherRate) < 0,
+    '4/9 should be prioritized over 3/6 despite having more total games',
+  );
+
+  fewerGamesButHigherRate.priorityGame = true;
+  assert(
+    comparePriority(fewerGamesButHigherRate, moreGamesButLowerRate) < 0,
+    'arrival priority should still take precedence over the game rate',
+  );
+});
+
 test('separate divisions allocate courts to the players with fewer games', () => {
   const players = [
     ...Array.from({ length: 4 }, (_, index) =>
@@ -430,6 +464,9 @@ test('check-in priority is persisted until an assigned game consumes it', () => 
   assert.match(repo2, /priorityGame:\s*r\.priority_game === true/);
   assert.match(repo2, /as last_played_round/);
   assert.match(repo2, /lastPlayedRound:\s*Number\(r\.last_played_round/);
+  assert.match(repo2, /present_round\.created_at >= ci\.checked_in_at[\s\S]*?as rounds_present/);
+  assert.match(repo2, /roundsPresent:\s*Number\(r\.rounds_present/);
+  assert.match(repo2, /roundsPresent:\s*p\.roundsPresent/);
   assert.match(router, /waiting: checked\.filter[\s\S]*?\.sort\(comparePriority\)/);
   assert.match(router, /set checked_in_at = now\(\), checked_out_at = null, priority_game = true/i);
   assert.match(

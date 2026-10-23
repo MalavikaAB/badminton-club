@@ -29,6 +29,9 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
   const rows = await sql`select p.id, p.name, p.gender, p.division, p.beginner, p.games_played, p.rounds_waiting,
     ci.checked_in_at, coalesce(ci.sit_out_rounds, 0) as sit_out_rounds,
     coalesce(ci.priority_game, false) as priority_game,
+    (select count(*)::int from venue_rounds present_round
+      where present_round.night_id = ${nightId}
+        and present_round.created_at >= ci.checked_in_at) as rounds_present,
     coalesce(pc.pairs, '{}') as pairs, coalesce(pc.opps, '{}') as opps,
     coalesce(lp.partner, '') as last_partner, coalesce(lp.opps, '{}') as last_opps
     from venue_check_ins ci
@@ -82,6 +85,7 @@ function toPlayer(r: any): Player {
     division: String(r.division ?? ''), beginner: r.beginner === true,
     preferredPartnerId: null, preferredFormat: 'NONE', checkedInAt,
     gamesPlayed: Number(r.games_played ?? 0),
+    roundsPresent: Number(r.rounds_present ?? 0),
     roundsWaiting: Number(r.rounds_waiting ?? 0),
     sittingOut: Number(r.sit_out_rounds ?? 0) > 0,
     priorityGame: r.priority_game === true,
@@ -96,7 +100,8 @@ export function serializeAllocation(a: RoundAllocation): any {
   const ser = (p: Player) => ({ id: p.id, name: p.name, gender: p.gender,
     beginner: p.beginner,
     checkedInAt: p.checkedInAt, gamesPlayed: p.gamesPlayed,
-    roundsWaiting: p.roundsWaiting, sittingOut: p.sittingOut,
+    roundsPresent: p.roundsPresent, roundsWaiting: p.roundsWaiting,
+    priorityGame: p.priorityGame, sittingOut: p.sittingOut,
     lastPartner: p.lastPartner, lastOpponents: p.lastOpponents });
   return { roundNumber: a.roundNumber,
     courts: a.courts.map((c) => ({ courtNumber: c.courtNumber, format: c.format,

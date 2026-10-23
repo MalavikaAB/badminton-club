@@ -347,6 +347,8 @@ function mapPlayers(players) {
     gender: player.gender,
     beginner: Boolean(profile?.beginner ?? player.beginner),
     gamesPlayed: player.gamesPlayed,
+    roundsPresent: Number(player.roundsPresent) || 0,
+    priorityGame: Boolean(player.priorityGame),
     roundsWaiting: player.roundsWaiting,
     sittingOut: Boolean(player.sittingOut),
     division: profile?.division || player.division || '?'
@@ -812,10 +814,16 @@ function availableManualPlayers() {
   return manualCandidates.filter(player => !assigned.has(player.id));
 }
 
-/** Same fairness priority the scheduler uses: fewest games, then longest waiting. */
+function gamesPerRoundPresent(player) {
+  return player.gamesPlayed / Math.max(1, Number(player.roundsPresent) || 0);
+}
+
+/** Same fairness priority the scheduler uses: sit-outs, arrival boost, game rate, then waiting. */
 function sortByFairness(players) {
   return [...players].sort((a, b) =>
-    a.gamesPlayed - b.gamesPlayed
+    Number(b.roundsWaiting > 0) - Number(a.roundsWaiting > 0)
+    || Number(b.priorityGame) - Number(a.priorityGame)
+    || gamesPerRoundPresent(a) - gamesPerRoundPresent(b)
     || b.roundsWaiting - a.roundsWaiting
     || a.name.localeCompare(b.name)
   );
@@ -1017,7 +1025,11 @@ async function startManualRound() {
   const eligible = [...rounds.flatMap(court => court.players), ...waiting]
     .filter(player => !player.sittingOut);
   manualCandidates = [...new Map(eligible.map(player => [player.id, player])).values()]
-    .sort((a, b) => a.gamesPlayed - b.gamesPlayed || b.roundsWaiting - a.roundsWaiting || a.name.localeCompare(b.name));
+    .sort((a, b) => Number(b.roundsWaiting > 0) - Number(a.roundsWaiting > 0)
+      || Number(b.priorityGame) - Number(a.priorityGame)
+      || gamesPerRoundPresent(a) - gamesPerRoundPresent(b)
+      || b.roundsWaiting - a.roundsWaiting
+      || a.name.localeCompare(b.name));
   if (manualCandidates.length < 4) {
     window.alert('At least four checked-in players who are not on a break are needed.');
     updateGenerateButton();

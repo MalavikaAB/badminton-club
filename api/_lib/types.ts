@@ -20,6 +20,8 @@ export interface Player {
   checkedInAt: string;
   gamesPlayed: number;
   roundsWaiting: number;
+  /** Rounds this player has been present for during the current check-in. */
+  roundsPresent?: number;
   sittingOut: boolean;
   pairCount: Record<string, number>;
   oppCount: Record<string, number>;
