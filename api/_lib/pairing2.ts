@@ -979,7 +979,8 @@ export function buildCourt(
   women: Player[],
 ): CourtAssignment {
   if (format === 'OPEN_DOUBLES') {
-    throw new Error('Open doubles is not a supported court format');
+    const allPlayers = [...men, ...women];
+    return buildCourtFromPool(format, allPlayers, men, women);
   }
 
   if (
