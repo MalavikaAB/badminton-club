@@ -478,6 +478,13 @@ function updateGenerateButton() {
 
 let editingPlayerId = null;
 
+function normalizePlayer(player) {
+  return {
+    ...player,
+    preferredPartnerIds: player.preferredPartnerIds ?? player.partnerPreferences ?? [],
+  };
+}
+
 function beginEditingPlayer(playerId) {
   const player = roster.find(item => item.id === playerId);
   if (!player) return;
@@ -1945,7 +1952,7 @@ document.querySelector('#player-form').addEventListener('submit', async event =>
       body: JSON.stringify(payload)
     });
     if (!response.ok) return;
-    const updated = await response.json();
+    const updated = normalizePlayer(await response.json());
     const index = roster.findIndex(player => player.id === editingPlayerId);
     if (index >= 0) roster[index] = updated; else roster.push(updated);
   } else {
@@ -1955,7 +1962,7 @@ document.querySelector('#player-form').addEventListener('submit', async event =>
       body: JSON.stringify(payload)
     });
     if (!response.ok) return;
-    roster.push(await response.json());
+    roster.push(normalizePlayer(await response.json()));
   }
   cancelEditingPlayer();
   renderPlayers();
@@ -1966,7 +1973,7 @@ document.querySelector('#player-division').addEventListener('change', updateBegi
 async function initializeRoster() {
   const response = await fetch(`${apiBaseUrl}/players`);
   if (!response.ok) throw new Error(`Could not load players: ${response.status}`);
-  roster = await response.json();
+  roster = (await response.json()).map(normalizePlayer);
   renderCheckins();
   renderPlayers();
   renderPartnerOptions(null);
