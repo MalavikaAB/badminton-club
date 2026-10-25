@@ -34,12 +34,7 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
       where present_round.night_id = ${nightId}
         and present_round.created_at >= ci.checked_in_at) as rounds_present,
     coalesce(pc.pairs, '{}') as pairs, coalesce(pc.opps, '{}') as opps,
-    coalesce(lp.partner, '') as last_partner, coalesce(lp.opps, '{}') as last_opps,
-    coalesce(lp.last_played_round, 0) as last_played_round,
-    (select max(open_round.round_number) from venue_round_players open_rp
-      join venue_rounds open_round on open_round.id = open_rp.round_id
-      where open_rp.player_id = p.id and open_rp.format = 'OPEN_DOUBLES'
-        and open_round.night_id = ${nightId}) as last_open_doubles_round
+    coalesce(lp.partner, '') as last_partner, coalesce(lp.opps, '{}') as last_opps
     from venue_check_ins ci
     join players p on p.id = ci.player_id
     left join lateral (select coalesce(array_agg(
@@ -97,7 +92,6 @@ function toPlayer(r: any): Player {
     sittingOut: Number(r.sit_out_rounds ?? 0) > 0,
     priorityGame: r.priority_game === true,
     lastPlayedRound: Number(r.last_played_round ?? 0),
-    lastOpenDoublesRound: Number(r.last_open_doubles_round ?? 0),
     pairCount: parseCounts(r.pairs), oppCount: parseCounts(r.opps),
     lastPartner: r.last_partner ? String(r.last_partner) : null,
     lastOpponents: parseIds(r.last_opps),

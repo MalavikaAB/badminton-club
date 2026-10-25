@@ -10,7 +10,7 @@ import {
   buildAllCourts,
 } from './pairing.js';
 
-import { bestSplit, courtCostOf, courtRepeatCountOf } from './pairing2.js';
+import { courtCostOf, courtRepeatCountOf } from './pairing2.js';
 
 const DEFAULT_COURTS = 6;
 
@@ -79,21 +79,11 @@ export function generateRound(
     legalCourtCapacity(active),
   );
 
-  if (courtCount === 0 && requestedCourtCount === 0) {
+  if (courtCount === 0) {
     return {
       roundNumber,
       courts: [],
       waiting: [...checkedInPlayers].sort(comparePriority),
-    };
-  }
-
-  if (courtCount === 0) {
-    const courts = buildOpenDoublesCourts(ordered, requestedCourtCount);
-    const numbered = renumberCourts(courts);
-    return {
-      roundNumber,
-      courts: numbered,
-      waiting: waitingAfter(numbered, ordered, resting),
     };
   }
 
@@ -102,7 +92,7 @@ export function generateRound(
       roundNumber,
       ordered,
       resting,
-      requestedCourtCount,
+      courtCount,
     );
   }
 
@@ -135,7 +125,6 @@ export function generateRound(
   const courts = courtFormats && courtFormats.length > 0
     ? buildAllCourts(selected, courtCount, courtFormats)
     : buildBestFormatCourts(selected, courtCount);
-  appendOpenDoublesCourts(courts, ordered, requestedCourtCount);
 
   /**
    * Existing division-balancing logic is still useful after the
@@ -682,7 +671,6 @@ function generateSeparatedRound(
   }
 
   const all = [...strictCourts, ...extraCourts];
-  appendOpenDoublesCourts(all, ordered, courtCount);
   const numbered = renumberCourts(all);
 
   return {
@@ -694,34 +682,6 @@ function generateSeparatedRound(
       resting,
     ),
   };
-}
-
-/** Fill free configured courts with the next four queued active players. */
-function appendOpenDoublesCourts(
-  courts: CourtAssignment[],
-  orderedPlayers: Player[],
-  courtLimit: number,
-): void {
-  const assigned = new Set(courts.flatMap((court) => court.players.map((player) => player.id)));
-  const remaining = orderedPlayers.filter((player) => !assigned.has(player.id));
-  courts.push(...buildOpenDoublesCourts(remaining, courtLimit - courts.length));
-}
-
-function buildOpenDoublesCourts(players: Player[], courtCount: number): CourtAssignment[] {
-  const courts: CourtAssignment[] = [];
-  const queue = [...players];
-  while (courts.length < courtCount && queue.length >= 4) {
-    const lineup = queue.splice(0, 4);
-    const split = bestSplit(lineup);
-    courts.push({
-      courtNumber: 0,
-      format: 'OPEN_DOUBLES',
-      players: lineup,
-      teamA: split.teamA,
-      teamB: split.teamB,
-    });
-  }
-  return courts;
 }
 
 function compareDivisionPlans(
@@ -803,18 +763,6 @@ export function comparePriority(
 ): number {
   if ((a.roundsWaiting > 0) !== (b.roundsWaiting > 0)) {
     return a.roundsWaiting > 0 ? -1 : 1;
-  }
-
-  // Give players from the last open court first consideration for a
-  // standard court in the next round, then clear that preference.
-  const aWasOnLastOpenCourt =
-    (a.lastOpenDoublesRound ?? 0) > 0 &&
-    a.lastOpenDoublesRound === a.lastPlayedRound;
-  const bWasOnLastOpenCourt =
-    (b.lastOpenDoublesRound ?? 0) > 0 &&
-    b.lastOpenDoublesRound === b.lastPlayedRound;
-  if (aWasOnLastOpenCourt !== bWasOnLastOpenCourt) {
-    return aWasOnLastOpenCourt ? -1 : 1;
   }
 
   if (Boolean(a.priorityGame) !== Boolean(b.priorityGame)) {
