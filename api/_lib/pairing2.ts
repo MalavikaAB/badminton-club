@@ -337,8 +337,7 @@ export function splitLegalForFormat(
   if (!format) {
     return true;
   }
-  // Open doubles accepts any four players, regardless of gender mix.
-  if (format === 'OPEN_DOUBLES') return true;
+  if (format === 'OPEN_DOUBLES') return false;
 
   const players = [
     ...teamA,
@@ -493,10 +492,6 @@ export function validForFormat(
     players.length !== 4
   ) {
     return false;
-  }
-
-  if (format === 'OPEN_DOUBLES') {
-    return true;
   }
 
   if (
@@ -984,8 +979,7 @@ export function buildCourt(
   women: Player[],
 ): CourtAssignment {
   if (format === 'OPEN_DOUBLES') {
-    const allPlayers = [...men, ...women];
-    return buildCourtFromPool(format, allPlayers, men, women);
+    throw new Error('Open doubles is not a supported court format');
   }
 
   if (

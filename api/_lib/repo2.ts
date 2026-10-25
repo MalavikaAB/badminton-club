@@ -34,8 +34,7 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
       where present_round.night_id = ${nightId}
         and present_round.created_at >= ci.checked_in_at) as rounds_present,
     coalesce(pc.pairs, '{}') as pairs, coalesce(pc.opps, '{}') as opps,
-    coalesce(lp.partner, '') as last_partner, coalesce(lp.opps, '{}') as last_opps,
-    coalesce(lp.last_played_round, 0) as last_played_round
+    coalesce(lp.partner, '') as last_partner, coalesce(lp.opps, '{}') as last_opps
     from venue_check_ins ci
     join players p on p.id = ci.player_id
     left join lateral (select coalesce(array_agg(

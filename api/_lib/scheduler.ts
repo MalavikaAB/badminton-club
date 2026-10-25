@@ -10,9 +10,16 @@ import {
   buildAllCourts,
 } from './pairing.js';
 
-import { buildCourt as buildCourt2, courtCostOf, courtRepeatCountOf } from './pairing2.js';
+import { courtCostOf, courtRepeatCountOf } from './pairing2.js';
 
 const DEFAULT_COURTS = 6;
+
+/**
+ * Number of extra players per court considered for pairing improvements.
+ * Players outside this window are considered only when needed to make
+ * the selected lineup field the maximum number of legal courts.
+ */
+const EXTRA_CANDIDATES_PER_COURT = 2;
 
 /**
  * Maximum number of local-improvement passes when improving
@@ -66,28 +73,17 @@ export function generateRound(
           Math.floor(active.length / 4),
         );
 
-  const ordered = rotatePriorityTies(active, roundNumber);
+  const ordered = [...active].sort(comparePriority);
   const courtCount = Math.min(
     requestedCourtCount,
     legalCourtCapacity(active),
   );
 
-  if (courtCount === 0 && requestedCourtCount === 0) {
+  if (courtCount === 0) {
     return {
       roundNumber,
       courts: [],
       waiting: [...checkedInPlayers].sort(comparePriority),
-    };
-  }
-
-  if (courtCount === 0) {
-    const courts: CourtAssignment[] = [];
-    appendOpenDoublesCourts(courts, ordered, requestedCourtCount);
-    const numbered = renumberCourts(courts);
-    return {
-      roundNumber,
-      courts: numbered,
-      waiting: waitingAfter(numbered, ordered, resting),
     };
   }
 
@@ -96,7 +92,7 @@ export function generateRound(
       roundNumber,
       ordered,
       resting,
-      requestedCourtCount,
+      courtCount,
     );
   }
 
@@ -109,12 +105,18 @@ export function generateRound(
    */
   const requiredPlayers = courtCount * 4;
 
+  const candidateCount = Math.min(
+    active.length,
+    requiredPlayers + courtCount * EXTRA_CANDIDATES_PER_COURT,
+  );
+
   const candidates = ordered;
+  const optimizationCandidates = ordered.slice(0, candidateCount);
 
   const selected = selectBestPlayers(
     candidates,
     requiredPlayers,
-    candidates,
+    optimizationCandidates,
   );
 
   /**
@@ -123,7 +125,6 @@ export function generateRound(
   const courts = courtFormats && courtFormats.length > 0
     ? buildAllCourts(selected, courtCount, courtFormats)
     : buildBestFormatCourts(selected, courtCount);
-  appendOpenDoublesCourts(courts, ordered, requestedCourtCount);
 
   /**
    * Existing division-balancing logic is still useful after the
@@ -591,10 +592,14 @@ function generateSeparatedRound(
         };
       }
 
+      const candidateCount = Math.min(
+        group.pool.length,
+        requiredPlayers + courtCountForDivision * EXTRA_CANDIDATES_PER_COURT,
+      );
       const selected = selectBestPlayers(
         group.pool,
         requiredPlayers,
-        group.pool,
+        group.pool.slice(0, candidateCount),
       );
       if (!canFieldCourtCount(selected, courtCountForDivision)) return null;
 
@@ -655,7 +660,10 @@ function generateSeparatedRound(
     const selected = selectBestPlayers(
       remaining,
       requiredPlayers,
-      remaining,
+      remaining.slice(0, Math.min(
+        remaining.length,
+        requiredPlayers + count * EXTRA_CANDIDATES_PER_COURT,
+      )),
     );
     if (!canFieldCourtCount(selected, count)) continue;
     extraCourts.push(...buildBestFormatCourts(selected, count));
@@ -663,7 +671,6 @@ function generateSeparatedRound(
   }
 
   const all = [...strictCourts, ...extraCourts];
-  appendOpenDoublesCourts(all, ordered, courtCount);
   const numbered = renumberCourts(all);
 
   return {
@@ -675,24 +682,6 @@ function generateSeparatedRound(
       resting,
     ),
   };
-}
-
-/** Use otherwise idle configured courts for four remaining active players. */
-function appendOpenDoublesCourts(
-  courts: CourtAssignment[],
-  orderedPlayers: Player[],
-  courtLimit: number,
-): void {
-  const assigned = new Set(courts.flatMap((court) => court.players.map((player) => player.id)));
-  const remaining = orderedPlayers.filter((player) => !assigned.has(player.id));
-  while (courts.length < courtLimit && remaining.length >= 4) {
-    // The queue is already priority-sorted. Use its next four players so
-    // an open court follows the same rotation as the rest of the round.
-    const players = remaining.splice(0, 4);
-    const men = players.filter((player) => player.gender === 'MALE');
-    const women = players.filter((player) => player.gender === 'FEMALE');
-    courts.push(buildCourt2('OPEN_DOUBLES', men, women));
-  }
 }
 
 function compareDivisionPlans(
@@ -772,16 +761,6 @@ export function comparePriority(
   a: Player,
   b: Player,
 ): number {
-  const priorityDifference = comparePriorityCore(a, b);
-  if (priorityDifference !== 0) return priorityDifference;
-
-  if (a.checkedInAt !== b.checkedInAt) {
-    return a.checkedInAt < b.checkedInAt ? -1 : 1;
-  }
-  return a.name.localeCompare(b.name);
-}
-
-function comparePriorityCore(a: Player, b: Player): number {
   if ((a.roundsWaiting > 0) !== (b.roundsWaiting > 0)) {
     return a.roundsWaiting > 0 ? -1 : 1;
   }
@@ -810,22 +789,19 @@ function comparePriorityCore(a: Player, b: Player): number {
     return (a.lastPlayedRound ?? 0) - (b.lastPlayedRound ?? 0);
   }
 
-  return 0;
-}
+  if (
+    a.checkedInAt !==
+    b.checkedInAt
+  ) {
+    return a.checkedInAt <
+      b.checkedInAt
+      ? -1
+      : 1;
+  }
 
-/** Rotate otherwise-tied players so stable names/check-in order don't pin the same four to open courts. */
-function rotatePriorityTies(players: Player[], roundNumber: number): Player[] {
-  if (players.length < 2) return [...players];
-  const baseline = [...players].sort(comparePriority);
-  const baseRank = new Map(baseline.map((player, index) => [player.id, index]));
-  const offset = roundNumber % players.length;
-  return [...players].sort((a, b) => {
-    const priority = comparePriorityCore(a, b);
-    if (priority !== 0) return priority;
-    const aRank = ((baseRank.get(a.id) ?? 0) - offset + players.length) % players.length;
-    const bRank = ((baseRank.get(b.id) ?? 0) - offset + players.length) % players.length;
-    return aRank - bRank || comparePriority(a, b);
-  });
+  return a.name.localeCompare(
+    b.name,
+  );
 }
 
 function gamesPerRoundPresent(player: Player): number {
