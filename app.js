@@ -487,9 +487,7 @@ function beginEditingPlayer(playerId) {
   updateBeginnerControl();
   renderPartnerOptions(playerId);
   const prefSelect = document.querySelector('#player-partner-preferences');
-  prefSelect.querySelectorAll('option').forEach(option => {
-    option.selected = player.preferredPartnerIds?.includes(option.value) ?? false;
-  });
+  prefSelect.value = player.preferredPartnerIds?.[0] ?? '';
   const submit = document.querySelector('#player-submit');
   submit.textContent = 'Save changes';
   submit.disabled = false;
@@ -549,23 +547,32 @@ function preferenceOptionsHtml(player) {
     .join('');
 }
 
+/** Name of a player's current preferred partner, or empty string when none set. */
+function partnerDisplayName(player) {
+  if (!player.preferredPartnerIds?.length) return '';
+  const other = roster.find((p) => p.id === player.preferredPartnerIds[0]);
+  return other ? escapeHtml(other.name) : '';
+}
+
 function renderPlayers() {
   document.querySelector('#players-list').innerHTML = roster.length
     ? roster
         .map(
-          (player) => `
+          (player) => {
+            const partner = partnerDisplayName(player);
+            return `
       <div class="directory-row">
         <div class="directory-avatar">${playerInitials(player.name)}</div>
         <div class="directory-info">
           <div class="directory-name">${escapeHtml(player.name)}</div>
           <div class="directory-sub">
             ${player.gender === 'MALE' ? 'Male' : 'Female'} · Div ${player.division}${
-            player.beginner ? ' · <span class="beginner-badge">Beginner</span>' : ''
-          }
+              player.beginner ? ' · <span class="beginner-badge">Beginner</span>' : ''
+            }
           </div>
+          ${partner ? `<div class="directory-partner">Preferred partner: ${partner}</div>` : ''}
         </div>
         <div class="directory-pref">
-          <div class="pref-label">Preferred Partner</div>
           <select class="pref-select" data-pref-id="${player.id}">
             <option value="">None</option>
             ${preferenceOptionsHtml(player)}
@@ -576,7 +583,8 @@ function renderPlayers() {
         )}">Edit</button><button type="button" class="remove-button" data-remove-id="${player.id}" title="Remove ${escapeHtml(
           player.name,
         )}">Remove</button></span>
-      </div>`,
+      </div>`;
+          },
         )
         .join('')
     : '<p class="empty-state">No players added yet.</p>';
@@ -612,7 +620,10 @@ function renderPlayers() {
       }
       const updated = await response.json();
       const index = roster.findIndex((player) => player.id === playerId);
-      if (index >= 0) roster[index] = updated;
+      if (index >= 0) {
+        roster[index] = updated;
+        renderPlayers();
+      }
     }),
   );
 }
@@ -1866,7 +1877,7 @@ document.querySelector('#venue-form').addEventListener('submit', async event => 
 document.querySelector('#player-form').addEventListener('submit', async event => {
   event.preventDefault();
   const prefSelect = document.querySelector('#player-partner-preferences');
-  const partnerPreferences = Array.from(prefSelect.selectedOptions).map(option => option.value);
+  const partnerPreferences = prefSelect.value ? [prefSelect.value] : [];
   const payload = {
     name: document.querySelector('#player-name').value.trim(),
     gender: document.querySelector('#player-gender').value,
