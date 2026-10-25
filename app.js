@@ -487,7 +487,7 @@ function beginEditingPlayer(playerId) {
   updateBeginnerControl();
   renderPartnerOptions(playerId);
   const prefSelect = document.querySelector('#player-partner-preferences');
-  prefSelect.value = player.preferredPartnerIds?.[0] ?? '';
+  prefSelect.value = player.partnerPreferences?.[0] ?? '';
   const submit = document.querySelector('#player-submit');
   submit.textContent = 'Save changes';
   submit.disabled = false;
@@ -540,7 +540,7 @@ function preferenceOptionsHtml(player) {
     .filter((p) => p.id !== player.id)
     .map(
       (p) =>
-        `<option value="${p.id}"${player.preferredPartnerIds?.includes(p.id) ? ' selected' : ''}>${escapeHtml(
+        `<option value="${p.id}"${player.partnerPreferences?.includes(p.id) ? ' selected' : ''}>${escapeHtml(
           p.name,
         )}</option>`,
     )
@@ -549,8 +549,8 @@ function preferenceOptionsHtml(player) {
 
 /** Name of a player's current preferred partner, or empty string when none set. */
 function partnerDisplayName(player) {
-  if (!player.preferredPartnerIds?.length) return '';
-  const other = roster.find((p) => p.id === player.preferredPartnerIds[0]);
+  if (!player.partnerPreferences?.length) return '';
+  const other = roster.find((p) => p.id === player.partnerPreferences[0]);
   return other ? escapeHtml(other.name) : '';
 }
 
@@ -615,7 +615,7 @@ function renderPlayers() {
       if (!response.ok) {
         const error = await readErrorMessage(response);
         window.alert('Could not save preferred partner: ' + error);
-        event.target.value = roster.find((p) => p.id === playerId)?.preferredPartnerIds?.[0] ?? '';
+        event.target.value = roster.find((p) => p.id === playerId)?.partnerPreferences?.[0] ?? '';
         return;
       }
       const updated = await response.json();

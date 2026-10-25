@@ -225,6 +225,53 @@ test('repeat partners are avoided when a legal alternative exists', () => {
   assert(!partneredPairs.includes(['a', 'b'].join()));
 });
 
+test('preferred partners are favoured when pairings are otherwise equal', () => {
+  const players = ['a', 'b', 'c', 'd'].map((id, index) =>
+    makePlayer(
+      id,
+      id,
+      'MALE',
+      '10',
+      new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+      0,
+      0,
+    ),
+  );
+  players[0].preferredPartnerIds = [players[1].id];
+
+  const split = bestSplit(players, 'MENS_DOUBLES');
+  const partneredPairs = [
+    [split.teamA[0].id, split.teamA[1].id].sort().join(),
+    [split.teamB[0].id, split.teamB[1].id].sort().join(),
+  ];
+
+  assert(partneredPairs.includes(['a', 'b'].join()));
+});
+
+test('preferred partners do not override avoiding a repeated partnership', () => {
+  const players = ['a', 'b', 'c', 'd'].map((id, index) =>
+    makePlayer(
+      id,
+      id,
+      'MALE',
+      '10',
+      new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+      0,
+      0,
+    ),
+  );
+  players[0].preferredPartnerIds = [players[1].id];
+  players[0].pairCount[players[1].id] = 1;
+
+  const split = bestSplit(players, 'MENS_DOUBLES');
+  const partneredPairs = [
+    [split.teamA[0].id, split.teamA[1].id].sort().join(),
+    [split.teamB[0].id, split.teamB[1].id].sort().join(),
+  ];
+
+  assert(!partneredPairs.includes(['a', 'b'].join()));
+});
+
 test('players with fewer games get priority when wait rounds are equal', () => {
   const players = [
     makePlayer('many-games', 'Many Games', 'MALE', '10', '2026-01-01T00:00:00.000Z', 10, 0),

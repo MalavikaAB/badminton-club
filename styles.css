@@ -179,7 +179,7 @@ select { appearance:none; padding-right:38px; background-image:linear-gradient(4
 .statistics-table .statistics-diagonal { color:#9aa49d; background:#f2f1eb; }
 .statistics-table tr:last-child th,.statistics-table tr:last-child td { border-bottom:0; }
 .statistics-table th:last-child,.statistics-table td:last-child { border-right:0; }
-#players-view .player-form { width:fit-content; padding:18px; margin-top:8px; border:1px solid var(--line); border-radius:14px; background:rgba(255,253,247,.7); box-shadow:0 14px 30px -28px rgba(24,34,30,.7); }
+#players-view .player-form { display:grid; grid-template-columns:minmax(180px,1.5fr) minmax(110px,.75fr) minmax(110px,.8fr) auto minmax(220px,1.4fr) auto; align-items:end; width:100%; max-width:1200px; padding:18px; margin-top:8px; border:1px solid var(--line); border-radius:14px; background:rgba(255,253,247,.7); box-shadow:0 14px 30px -28px rgba(24,34,30,.7); }
 .venues-list { display:flex; flex-direction:column; gap:14px; max-width:860px; }
 .venue-card { background:var(--panel); border:1px solid var(--line); padding:18px 20px; display:flex; flex-direction:column; gap:12px; }
 .venue-card.inactive { opacity:.65; }
@@ -208,7 +208,7 @@ select { appearance:none; padding-right:38px; background-image:linear-gradient(4
 .directory-row strong { font-size:18px; line-height:1.1; }
 .directory-row small { margin-left:0; font-size:12px; }
 .beginner-badge { display:inline-block; margin-left:5px; padding:2px 6px; border:1px solid #b45309; border-radius:4px; color:#8a3d08; font:600 10px 'DM Mono'; text-transform:uppercase; }
-#player-partner-preferences { width:100%; height:120px; }
+#player-partner-preferences { width:100%; height:42px; min-height:42px; }
 /* Player directory row layout (avatar + name/gender/div + preferred partner dropdown). */
 .directory-row {
   display: flex;
@@ -304,6 +304,8 @@ select { appearance:none; padding-right:38px; background-image:linear-gradient(4
 .remove-button { color:var(--coral); border-bottom:1px solid rgba(231,111,81,.4); }
 .empty-state { color:var(--muted); padding:25px 0; }
 @media(max-width:570px) { .tabs { gap:18px; margin:0 -18px 28px; padding:0 18px; overflow-x:auto; scrollbar-width:none; }.tabs::-webkit-scrollbar { display:none; }.tab { flex:0 0 auto; }.nav-logout { margin-left:0; }.checkin-player,.directory-row { align-items:flex-start; flex-wrap:wrap; }.checkin-player small { margin-left:32px; width:100%; }.directory-row small { margin-left:0; width:auto; }.player-form > * { width:100%; }.player-form input { min-width:0; width:100%; }.player-form .primary-button { width:100%; } #players-view .player-form { width:100%; } }
+@media(max-width:900px) { #players-view .player-form { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:570px) { #players-view .player-form { grid-template-columns:minmax(0,1fr); } }
 .heading-actions { display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
 .danger-button { color:var(--coral); border-bottom-color:var(--coral); }
 /* Row actions (Swap / Break / Cancel) sit inside single-line flex rows, so the
