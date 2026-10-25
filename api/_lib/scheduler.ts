@@ -706,11 +706,35 @@ function appendOpenDoublesCourts(
   const assigned = new Set(courts.flatMap((court) => court.players.map((player) => player.id)));
   const remaining = orderedPlayers.filter((player) => !assigned.has(player.id));
   while (courts.length < courtLimit && remaining.length >= 4) {
-    const players = remaining.splice(0, 4);
+    const candidateCount = Math.min(
+      remaining.length,
+      4 + (courtLimit - courts.length) * EXTRA_CANDIDATES_PER_COURT,
+    );
+    const players = selectBestOpenCourtPlayers(remaining.slice(0, candidateCount));
+    const selectedIds = new Set(players.map((player) => player.id));
+    for (let index = remaining.length - 1; index >= 0; index--) {
+      if (selectedIds.has(remaining[index].id)) remaining.splice(index, 1);
+    }
     const men = players.filter((player) => player.gender === 'MALE');
     const women = players.filter((player) => player.gender === 'FEMALE');
     courts.push(buildCourt2('OPEN_DOUBLES', men, women));
   }
+}
+
+/** Search beyond the queue head so open courts can avoid repeat matchups. */
+function selectBestOpenCourtPlayers(candidates: Player[]): Player[] {
+  let best: Player[] | null = null;
+  for (let a = 0; a < candidates.length - 3; a++) {
+    for (let b = a + 1; b < candidates.length - 2; b++) {
+      for (let c = b + 1; c < candidates.length - 1; c++) {
+        for (let d = c + 1; d < candidates.length; d++) {
+          const lineup = [candidates[a], candidates[b], candidates[c], candidates[d]];
+          if (!best || compareSelectionQuality(lineup, best) > 0) best = lineup;
+        }
+      }
+    }
+  }
+  return (best ?? candidates.slice(0, 4)).sort(comparePriority);
 }
 
 function compareDivisionPlans(
