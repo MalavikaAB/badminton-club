@@ -22,10 +22,10 @@ export interface Player {
   priorityGame?: boolean;
   /** Most recent club-night round this player was assigned to. */
   lastPlayedRound?: number;
-  /** Number of cross-division fallback courts played this night. */
-  crossDivisionCourtCount?: number;
-  /** Most recent round this player played on a cross-division court. */
-  lastCrossDivisionRound?: number;
+  /** Number of cross-division or open-doubles fallback courts this night. */
+  fallbackCourtCount?: number;
+  /** Most recent round this player played on a fallback court. */
+  lastFallbackCourtRound?: number;
   /** Optional soft preferences used only when they improve a viable round. Players may name several preferred partners; they are partnered with a preferred player only when that player is also in the round pool. Never affects wait times, sit-outs or number of games. */
   preferredPartnerIds: string[];
   preferredFormat: PreferredFormat;

@@ -8,6 +8,7 @@ import type {
 import {
   balanceDivisionsAcrossCourts,
   buildAllCourts,
+  buildCourt,
 } from './pairing.js';
 
 import { courtCostOf, courtRepeatCountOf } from './pairing2.js';
@@ -49,6 +50,7 @@ export function generateRound(
   courtFormats?: GameFormat[] | null,
   separateDivisions = false,
   maxCourts?: number,
+  fillSpareCourtWithOpenDoubles = false,
 ): RoundAllocation {
   const resting = checkedInPlayers.filter((p) => p.sittingOut);
   const active = checkedInPlayers.filter((p) => !p.sittingOut);
@@ -80,20 +82,26 @@ export function generateRound(
   );
 
   if (courtCount === 0) {
-    return {
+    const emptyAllocation = {
       roundNumber,
       courts: [],
       waiting: [...checkedInPlayers].sort(comparePriority),
     };
+    return fillSpareCourtWithOpenDoubles
+      ? addOpenDoublesSpareCourts(emptyAllocation, requestedCourtCount, roundNumber)
+      : emptyAllocation;
   }
 
   if (separateDivisions) {
-    return generateSeparatedRound(
+    const allocation = generateSeparatedRound(
       roundNumber,
       ordered,
       resting,
       courtCount,
     );
+    return fillSpareCourtWithOpenDoubles
+      ? addOpenDoublesSpareCourts(allocation, requestedCourtCount, roundNumber)
+      : allocation;
   }
 
   /**
@@ -134,7 +142,7 @@ export function generateRound(
 
   const numbered = renumberCourts(courts);
 
-  return {
+  const allocation = {
     roundNumber,
     courts: numbered,
     waiting: waitingAfter(
@@ -142,6 +150,42 @@ export function generateRound(
       ordered,
       resting,
     ),
+  };
+  return fillSpareCourtWithOpenDoubles
+    ? addOpenDoublesSpareCourts(allocation, requestedCourtCount, roundNumber)
+    : allocation;
+}
+
+/** Fill otherwise unused physical courts with unrestricted doubles when opted in. */
+function addOpenDoublesSpareCourts(
+  allocation: RoundAllocation,
+  requestedCourtCount: number,
+  roundNumber: number,
+): RoundAllocation {
+  const courts = [...allocation.courts];
+  let waiting = [...allocation.waiting];
+
+  while (courts.length < requestedCourtCount) {
+    const eligible = rotateEqualPriorityPlayers(
+      waiting.filter((player) => !player.sittingOut),
+      roundNumber,
+      compareSpareCourtPriority,
+    );
+    if (eligible.length < 4) break;
+    const selected = eligible.slice(0, 4);
+    const assignedIds = new Set(selected.map((player) => player.id));
+    courts.push(buildCourt(
+      'OPEN_DOUBLES',
+      selected.filter((player) => player.gender === 'MALE'),
+      selected.filter((player) => player.gender === 'FEMALE'),
+    ));
+    waiting = waiting.filter((player) => !assignedIds.has(player.id));
+  }
+
+  return {
+    ...allocation,
+    courts: renumberCourts(courts),
+    waiting: waiting.sort(comparePriority),
   };
 }
 
@@ -724,10 +768,10 @@ function compareSpareCourtPriority(a: Player, b: Player): number {
     return a.priorityGame ? -1 : 1;
   }
   const fallbackCountDifference =
-    (a.crossDivisionCourtCount ?? 0) - (b.crossDivisionCourtCount ?? 0);
+    (a.fallbackCourtCount ?? 0) - (b.fallbackCourtCount ?? 0);
   if (fallbackCountDifference) return fallbackCountDifference;
   const fallbackRoundDifference =
-    (a.lastCrossDivisionRound ?? 0) - (b.lastCrossDivisionRound ?? 0);
+    (a.lastFallbackCourtRound ?? 0) - (b.lastFallbackCourtRound ?? 0);
   if (fallbackRoundDifference) return fallbackRoundDifference;
 
   if ((a.roundsWaiting > 0) !== (b.roundsWaiting > 0)) {
@@ -753,10 +797,10 @@ function compareStrictDivisionPriority(a: Player, b: Player): number {
     return a.priorityGame ? -1 : 1;
   }
   const fallbackCountDifference =
-    (b.crossDivisionCourtCount ?? 0) - (a.crossDivisionCourtCount ?? 0);
+    (b.fallbackCourtCount ?? 0) - (a.fallbackCourtCount ?? 0);
   if (fallbackCountDifference) return fallbackCountDifference;
   const fallbackRoundDifference =
-    (b.lastCrossDivisionRound ?? 0) - (a.lastCrossDivisionRound ?? 0);
+    (b.lastFallbackCourtRound ?? 0) - (a.lastFallbackCourtRound ?? 0);
   if (fallbackRoundDifference) return fallbackRoundDifference;
   return comparePriorityBeforeName(a, b) || a.name.localeCompare(b.name);
 }

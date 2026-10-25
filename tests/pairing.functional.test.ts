@@ -398,6 +398,33 @@ test('separate divisions fill an available court with players left across divisi
   assert.equal(allocation.waiting.length, 2);
 });
 
+test('open-doubles option uses a spare court for an otherwise illegal leftover group', () => {
+  const players = [
+    ...Array.from({ length: 4 }, (_, index) =>
+      makePlayer(`strict-${index}`, `Strict ${index}`, 'MALE', 'A',
+        '2026-01-01T00:00:00.000Z', 0, 0),
+    ),
+    ...Array.from({ length: 3 }, (_, index) =>
+      makePlayer(`leftover-man-${index}`, `Leftover Man ${index}`, 'MALE', 'B',
+        '2026-01-01T00:01:00.000Z', 0, 0),
+    ),
+    makePlayer('leftover-woman', 'Leftover Woman', 'FEMALE', 'B',
+      '2026-01-01T00:01:00.000Z', 0, 0),
+  ];
+
+  const standardAllocation = generateRound(1, players, null, true, 2);
+  assert.equal(standardAllocation.courts.length, 1);
+  assert.equal(standardAllocation.waiting.length, 4);
+
+  const openAllocation = generateRound(1, players, null, true, 2, true);
+  assert.equal(openAllocation.courts.length, 2);
+  assert.equal(openAllocation.courts[1].format, 'OPEN_DOUBLES');
+  assert.equal(openAllocation.courts[1].players.length, 4);
+  assert.equal(openAllocation.courts[1].teamA.length, 2);
+  assert.equal(openAllocation.courts[1].teamB.length, 2);
+  assert.equal(openAllocation.waiting.length, 0);
+});
+
 test('separate-division spare court rotates equally ranked cross-division players', () => {
   const players = [
     ...Array.from({ length: 9 }, (_, index) =>
@@ -437,8 +464,8 @@ test('separate-division spare court rotates equally ranked cross-division player
       if (assigned.has(player.id)) player.lastPlayedRound = round;
     }
     for (const player of spareCourt.players) {
-      player.crossDivisionCourtCount = (player.crossDivisionCourtCount ?? 0) + 1;
-      player.lastCrossDivisionRound = round;
+      player.fallbackCourtCount = (player.fallbackCourtCount ?? 0) + 1;
+      player.lastFallbackCourtRound = round;
     }
   }
 
@@ -447,8 +474,8 @@ test('separate-division spare court rotates equally ranked cross-division player
     'the cross-division spare court should not repeat the same lineup in consecutive rounds',
   );
   assert(
-    Math.max(...players.map((player) => player.crossDivisionCourtCount ?? 0)) <= 4,
-    `fallback exposure should be spread across the full pool rather than remain on the same players: ${players.map((player) => `${player.id}=${player.crossDivisionCourtCount ?? 0}`).join(', ')}`,
+    Math.max(...players.map((player) => player.fallbackCourtCount ?? 0)) <= 4,
+    `fallback exposure should be spread across the full pool rather than remain on the same players: ${players.map((player) => `${player.id}=${player.fallbackCourtCount ?? 0}`).join(', ')}`,
   );
 });
 

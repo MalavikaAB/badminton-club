@@ -1697,7 +1697,8 @@ async function generateNextRound() {
         roundNumber: round,
         sessionId: selectedSession(),
         players: [],
-        separateDivisions: document.querySelector('#separate-divisions').checked
+        separateDivisions: document.querySelector('#separate-divisions').checked,
+        fillSpareCourtWithOpenDoubles: document.querySelector('#open-doubles-spare-court').checked
         
         
       })

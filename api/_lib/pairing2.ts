@@ -337,7 +337,7 @@ export function splitLegalForFormat(
   if (!format) {
     return true;
   }
-  if (format === 'OPEN_DOUBLES') return false;
+  if (format === 'OPEN_DOUBLES') return true;
 
   const players = [
     ...teamA,
@@ -493,6 +493,8 @@ export function validForFormat(
   ) {
     return false;
   }
+
+  if (format === 'OPEN_DOUBLES') return true;
 
   if (
     format === 'MENS_DOUBLES'
@@ -979,7 +981,7 @@ export function buildCourt(
   women: Player[],
 ): CourtAssignment {
   if (format === 'OPEN_DOUBLES') {
-    throw new Error('Open doubles is not a supported court format');
+    return buildCourtFromPool(format, [...men, ...women], men, women);
   }
 
   if (

@@ -708,6 +708,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   const sessionId: string | null = body?.sessionId ?? null;
   const roundNumber = Number(body?.roundNumber ?? 0);
   const separate = body?.separateDivisions === true;
+  const fillSpareCourtWithOpenDoubles = body?.fillSpareCourtWithOpenDoubles === true;
   const formats = (Array.isArray(body?.courtFormats) ? body.courtFormats : [])
     .map((f: unknown): GameFormat | null => {
       if (f === 'MENS_DOUBLES' || f === 'WOMENS_DOUBLES' || f === 'MIXED_DOUBLES') return f;
@@ -728,8 +729,8 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
       checkedInAt: p.checkedInAt ?? EPOCH, gamesPlayed: Number(p.gamesPlayed ?? 0),
       roundsPresent: Number(p.roundsPresent ?? 0),
       roundsWaiting: Number(p.roundsWaiting ?? 0),
-      crossDivisionCourtCount: Number(p.crossDivisionCourtCount ?? 0),
-      lastCrossDivisionRound: Number(p.lastCrossDivisionRound ?? 0),
+      fallbackCourtCount: Number(p.fallbackCourtCount ?? 0),
+      lastFallbackCourtRound: Number(p.lastFallbackCourtRound ?? 0),
       priorityGame: p.priorityGame === true,
       sittingOut: p.sittingOut === true, pairCount: {}, oppCount: {},
       lastPartner: null, lastOpponents: [],
@@ -758,11 +759,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
     }
     allocation = manual;
   } else {
-    allocation = generateRound(next, players, formats, separate, maxCourts);
-  }
-  if (allocation.courts.some((court) => court.format === 'OPEN_DOUBLES')) {
-    sendError(res, 400, 'Open doubles is not a supported court format');
-    return;
+    allocation = generateRound(next, players, formats, separate, maxCourts, fillSpareCourtWithOpenDoubles);
   }
   if (!sessionId || !nightId) {
     sendJson(res, 200, serializeAllocation(allocation));
@@ -815,7 +812,8 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
 function refreshGeneratedAllocation(allocation: RoundAllocation): void {
   for (const court of allocation.courts) {
     const byName = (left: Player, right: Player) => left.name.localeCompare(right.name);
-    const isCrossDivisionCourt = new Set(court.players.map((player) => player.division)).size > 1;
+    const isFallbackCourt = court.format === 'OPEN_DOUBLES'
+      || new Set(court.players.map((player) => player.division)).size > 1;
     court.players.sort(byName);
     court.teamA.sort(byName);
     court.teamB.sort(byName);
@@ -825,9 +823,9 @@ function refreshGeneratedAllocation(allocation: RoundAllocation): void {
       player.gamesPlayed += 1;
       player.roundsPresent = (player.roundsPresent ?? 0) + 1;
       player.roundsWaiting = 0;
-      if (isCrossDivisionCourt) {
-        player.crossDivisionCourtCount = (player.crossDivisionCourtCount ?? 0) + 1;
-        player.lastCrossDivisionRound = allocation.roundNumber;
+      if (isFallbackCourt) {
+        player.fallbackCourtCount = (player.fallbackCourtCount ?? 0) + 1;
+        player.lastFallbackCourtRound = allocation.roundNumber;
       }
       player.sittingOut = false;
       player.priorityGame = false;

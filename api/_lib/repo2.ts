@@ -30,8 +30,8 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
     coalesce(p.partner_preferences, '{}') as partner_preferences,
     ci.checked_in_at, coalesce(ci.sit_out_rounds, 0) as sit_out_rounds,
     coalesce(ci.priority_game, false) as priority_game,
-    coalesce(cross_div.court_count, 0) as cross_division_court_count,
-    coalesce(cross_div.last_round, 0) as last_cross_division_round,
+    coalesce(fallback.court_count, 0) as fallback_court_count,
+    coalesce(fallback.last_round, 0) as last_fallback_court_round,
     (select count(*)::int from venue_rounds present_round
       where present_round.night_id = ${nightId}
         and present_round.created_at >= ci.checked_in_at) as rounds_present,
@@ -69,13 +69,13 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
       from venue_round_players rp
       join venue_rounds r on r.id = rp.round_id
       where rp.player_id = p.id and r.night_id = ${nightId}
-      and exists (
+      and (rp.format = 'OPEN_DOUBLES' or exists (
         select 1 from venue_round_players other_rp
         join players other_player on other_player.id = other_rp.player_id
         where other_rp.round_id = rp.round_id
           and other_rp.court_number = rp.court_number
           and other_player.division is distinct from p.division
-      )) cross_div on true
+      ))) fallback on true
     where ci.session_id = ${sessionId} and ci.checked_out_at is null and p.active = true
     order by ci.checked_in_at`;
   return (rows as any[]).map((r) => toPlayer(r));
@@ -107,8 +107,8 @@ function toPlayer(r: any): Player {
     sittingOut: Number(r.sit_out_rounds ?? 0) > 0,
     priorityGame: r.priority_game === true,
     lastPlayedRound: Number(r.last_played_round ?? 0),
-    crossDivisionCourtCount: Number(r.cross_division_court_count ?? 0),
-    lastCrossDivisionRound: Number(r.last_cross_division_round ?? 0),
+    fallbackCourtCount: Number(r.fallback_court_count ?? 0),
+    lastFallbackCourtRound: Number(r.last_fallback_court_round ?? 0),
     pairCount: parseCounts(r.pairs), oppCount: parseCounts(r.opps),
     lastPartner: r.last_partner ? String(r.last_partner) : null,
     lastOpponents: parseIds(r.last_opps),
@@ -120,8 +120,8 @@ export function serializeAllocation(a: RoundAllocation): any {
     beginner: p.beginner,
     checkedInAt: p.checkedInAt, gamesPlayed: p.gamesPlayed,
     roundsPresent: p.roundsPresent, roundsWaiting: p.roundsWaiting,
-    crossDivisionCourtCount: p.crossDivisionCourtCount ?? 0,
-    lastCrossDivisionRound: p.lastCrossDivisionRound ?? 0,
+    fallbackCourtCount: p.fallbackCourtCount ?? 0,
+    lastFallbackCourtRound: p.lastFallbackCourtRound ?? 0,
     priorityGame: p.priorityGame, sittingOut: p.sittingOut,
     lastPartner: p.lastPartner, lastOpponents: p.lastOpponents });
   return { roundNumber: a.roundNumber,
