@@ -567,7 +567,7 @@ function renderPlayers() {
     ? roster
         .map(
           (player) => {
-            const partner = partnerDisplayName(player);
+            const partnerNames = partnerDisplayNames(player);
             return `
       <div class="directory-row">
         <div class="directory-avatar">${playerInitials(player.name)}</div>
@@ -578,7 +578,7 @@ function renderPlayers() {
               player.beginner ? ' · <span class="beginner-badge">Beginner</span>' : ''
             }
           </div>
-          ${partner ? `<div class="directory-partner">Preferred partner: ${partner}</div>` : ''}
+          ${partnerNames.length > 0 ? `<div class="directory-partner">Preferred partner(s): ${partnerNames.join(', ')}</div>` : ''}
         </div>
         <div class="directory-pref">
           <select class="pref-select" data-pref-id="${player.id}">
