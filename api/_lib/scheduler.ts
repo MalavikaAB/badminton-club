@@ -15,13 +15,6 @@ import { buildCourt as buildCourt2, courtCostOf, courtRepeatCountOf } from './pa
 const DEFAULT_COURTS = 6;
 
 /**
- * Number of extra players per court considered for pairing improvements.
- * Players outside this window are considered only when needed to make
- * the selected lineup field the maximum number of legal courts.
- */
-const EXTRA_CANDIDATES_PER_COURT = 2;
-
-/**
  * Maximum number of local-improvement passes when improving
  * the selected group.
  */
@@ -116,18 +109,12 @@ export function generateRound(
    */
   const requiredPlayers = courtCount * 4;
 
-  const candidateCount = Math.min(
-    active.length,
-    requiredPlayers + courtCount * EXTRA_CANDIDATES_PER_COURT,
-  );
-
   const candidates = ordered;
-  const optimizationCandidates = ordered.slice(0, candidateCount);
 
   const selected = selectBestPlayers(
     candidates,
     requiredPlayers,
-    optimizationCandidates,
+    candidates,
   );
 
   /**
@@ -604,14 +591,10 @@ function generateSeparatedRound(
         };
       }
 
-      const candidateCount = Math.min(
-        group.pool.length,
-        requiredPlayers + courtCountForDivision * EXTRA_CANDIDATES_PER_COURT,
-      );
       const selected = selectBestPlayers(
         group.pool,
         requiredPlayers,
-        group.pool.slice(0, candidateCount),
+        group.pool,
       );
       if (!canFieldCourtCount(selected, courtCountForDivision)) return null;
 
@@ -672,10 +655,7 @@ function generateSeparatedRound(
     const selected = selectBestPlayers(
       remaining,
       requiredPlayers,
-      remaining.slice(0, Math.min(
-        remaining.length,
-        requiredPlayers + count * EXTRA_CANDIDATES_PER_COURT,
-      )),
+      remaining,
     );
     if (!canFieldCourtCount(selected, count)) continue;
     extraCourts.push(...buildBestFormatCourts(selected, count));
@@ -706,35 +686,13 @@ function appendOpenDoublesCourts(
   const assigned = new Set(courts.flatMap((court) => court.players.map((player) => player.id)));
   const remaining = orderedPlayers.filter((player) => !assigned.has(player.id));
   while (courts.length < courtLimit && remaining.length >= 4) {
-    const candidateCount = Math.min(
-      remaining.length,
-      4 + (courtLimit - courts.length) * EXTRA_CANDIDATES_PER_COURT,
-    );
-    const players = selectBestOpenCourtPlayers(remaining.slice(0, candidateCount));
-    const selectedIds = new Set(players.map((player) => player.id));
-    for (let index = remaining.length - 1; index >= 0; index--) {
-      if (selectedIds.has(remaining[index].id)) remaining.splice(index, 1);
-    }
+    // The queue is already priority-sorted. Use its next four players so
+    // an open court follows the same rotation as the rest of the round.
+    const players = remaining.splice(0, 4);
     const men = players.filter((player) => player.gender === 'MALE');
     const women = players.filter((player) => player.gender === 'FEMALE');
     courts.push(buildCourt2('OPEN_DOUBLES', men, women));
   }
-}
-
-/** Search beyond the queue head so open courts can avoid repeat matchups. */
-function selectBestOpenCourtPlayers(candidates: Player[]): Player[] {
-  let best: Player[] | null = null;
-  for (let a = 0; a < candidates.length - 3; a++) {
-    for (let b = a + 1; b < candidates.length - 2; b++) {
-      for (let c = b + 1; c < candidates.length - 1; c++) {
-        for (let d = c + 1; d < candidates.length; d++) {
-          const lineup = [candidates[a], candidates[b], candidates[c], candidates[d]];
-          if (!best || compareSelectionQuality(lineup, best) > 0) best = lineup;
-        }
-      }
-    }
-  }
-  return (best ?? candidates.slice(0, 4)).sort(comparePriority);
 }
 
 function compareDivisionPlans(
