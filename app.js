@@ -487,7 +487,13 @@ function beginEditingPlayer(playerId) {
   updateBeginnerControl();
   renderPartnerOptions(playerId);
   const prefSelect = document.querySelector('#player-partner-preferences');
-  prefSelect.value = player.partnerPreferences?.[0] ?? '';
+  // Set all selected preferred partner IDs
+  const selectedIds = player.preferredPartnerIds || [];
+  selectedIds.forEach((id) => {
+    const option = Array.from(prefSelect.options).find(opt => opt.value === id);
+    if (option) option.selected = true;
+  });
+  prefSelect.value = selectedIds.length > 0 ? selectedIds : '';
   const submit = document.querySelector('#player-submit');
   submit.textContent = 'Save changes';
   submit.disabled = false;
@@ -540,18 +546,20 @@ function preferenceOptionsHtml(player) {
     .filter((p) => p.id !== player.id)
     .map(
       (p) =>
-        `<option value="${p.id}"${player.partnerPreferences?.includes(p.id) ? ' selected' : ''}>${escapeHtml(
+        `<option value="${p.id}"${player.preferredPartnerIds?.includes(p.id) ? ' selected' : ''}>${escapeHtml(
           p.name,
         )}</option>`,
     )
     .join('');
 }
 
-/** Name of a player's current preferred partner, or empty string when none set. */
-function partnerDisplayName(player) {
-  if (!player.partnerPreferences?.length) return '';
-  const other = roster.find((p) => p.id === player.partnerPreferences[0]);
-  return other ? escapeHtml(other.name) : '';
+/** Names of a player's current preferred partners. */
+function partnerDisplayNames(player) {
+  if (!player.preferredPartnerIds?.length) return [];
+  return player.preferredPartnerIds.map((id) => {
+    const other = roster.find((p) => p.id === id);
+    return other ? escapeHtml(other.name) : escapeHtml(id);
+  });
 }
 
 function renderPlayers() {
@@ -605,8 +613,9 @@ function renderPlayers() {
   document.querySelectorAll('.pref-select').forEach((select) =>
     select.addEventListener('change', async (event) => {
       const playerId = event.target.dataset.prefId;
-      const partnerId = event.target.value;
-      const partnerPreferences = partnerId ? [partnerId] : [];
+      const prefSelect = event.target;
+      const partnerIds = Array.from(prefSelect.selectedOptions).map(option => option.value);
+      const partnerPreferences = partnerIds.length ? partnerIds : [];
       const response = await fetch(`${apiBaseUrl}/players/${playerId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -615,7 +624,7 @@ function renderPlayers() {
       if (!response.ok) {
         const error = await readErrorMessage(response);
         window.alert('Could not save preferred partner: ' + error);
-        event.target.value = roster.find((p) => p.id === playerId)?.partnerPreferences?.[0] ?? '';
+        event.target.value = roster.find((p) => p.id === playerId)?.preferredPartnerIds?.[0] ?? '';
         return;
       }
       const updated = await response.json();
