@@ -10,7 +10,7 @@ import {
   buildAllCourts,
 } from './pairing.js';
 
-import { courtCostOf, courtRepeatCountOf } from './pairing2.js';
+import { buildCourt as buildCourt2, courtCostOf, courtRepeatCountOf } from './pairing2.js';
 
 const DEFAULT_COURTS = 6;
 
@@ -79,11 +79,22 @@ export function generateRound(
     legalCourtCapacity(active),
   );
 
-  if (courtCount === 0) {
+  if (courtCount === 0 && requestedCourtCount === 0) {
     return {
       roundNumber,
       courts: [],
       waiting: [...checkedInPlayers].sort(comparePriority),
+    };
+  }
+
+  if (courtCount === 0) {
+    const courts: CourtAssignment[] = [];
+    appendOpenDoublesCourts(courts, ordered, requestedCourtCount);
+    const numbered = renumberCourts(courts);
+    return {
+      roundNumber,
+      courts: numbered,
+      waiting: waitingAfter(numbered, ordered, resting),
     };
   }
 
@@ -92,7 +103,7 @@ export function generateRound(
       roundNumber,
       ordered,
       resting,
-      courtCount,
+      requestedCourtCount,
     );
   }
 
@@ -125,12 +136,7 @@ export function generateRound(
   const courts = courtFormats && courtFormats.length > 0
     ? buildAllCourts(selected, courtCount, courtFormats)
     : buildBestFormatCourts(selected, courtCount);
-  // If there are waiting players, try OPEN_DOUBLES format to utilize courts
-  const hasWaitingPlayers = checkedInPlayers.some((p) => p.roundsWaiting > 0);
-  const leftoverPlayers = checkedInPlayers.length % 4 !== 0;
-  const updatedCourtFormats = hasWaitingPlayers && leftoverPlayers && !courtFormats
-    ? ['MIXED_DOUBLES', 'OPEN_DOUBLES']
-    : courtFormats;
+  appendOpenDoublesCourts(courts, ordered, requestedCourtCount);
 
   /**
    * Existing division-balancing logic is still useful after the
@@ -677,6 +683,7 @@ function generateSeparatedRound(
   }
 
   const all = [...strictCourts, ...extraCourts];
+  appendOpenDoublesCourts(all, ordered, courtCount);
   const numbered = renumberCourts(all);
 
   return {
@@ -688,6 +695,22 @@ function generateSeparatedRound(
       resting,
     ),
   };
+}
+
+/** Use otherwise idle configured courts for four remaining active players. */
+function appendOpenDoublesCourts(
+  courts: CourtAssignment[],
+  orderedPlayers: Player[],
+  courtLimit: number,
+): void {
+  const assigned = new Set(courts.flatMap((court) => court.players.map((player) => player.id)));
+  const remaining = orderedPlayers.filter((player) => !assigned.has(player.id));
+  while (courts.length < courtLimit && remaining.length >= 4) {
+    const players = remaining.splice(0, 4);
+    const men = players.filter((player) => player.gender === 'MALE');
+    const women = players.filter((player) => player.gender === 'FEMALE');
+    courts.push(buildCourt2('OPEN_DOUBLES', men, women));
+  }
 }
 
 function compareDivisionPlans(
