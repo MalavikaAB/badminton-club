@@ -728,6 +728,8 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
       checkedInAt: p.checkedInAt ?? EPOCH, gamesPlayed: Number(p.gamesPlayed ?? 0),
       roundsPresent: Number(p.roundsPresent ?? 0),
       roundsWaiting: Number(p.roundsWaiting ?? 0),
+      crossDivisionCourtCount: Number(p.crossDivisionCourtCount ?? 0),
+      lastCrossDivisionRound: Number(p.lastCrossDivisionRound ?? 0),
       priorityGame: p.priorityGame === true,
       sittingOut: p.sittingOut === true, pairCount: {}, oppCount: {},
       lastPartner: null, lastOpponents: [],
@@ -813,6 +815,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
 function refreshGeneratedAllocation(allocation: RoundAllocation): void {
   for (const court of allocation.courts) {
     const byName = (left: Player, right: Player) => left.name.localeCompare(right.name);
+    const isCrossDivisionCourt = new Set(court.players.map((player) => player.division)).size > 1;
     court.players.sort(byName);
     court.teamA.sort(byName);
     court.teamB.sort(byName);
@@ -822,6 +825,10 @@ function refreshGeneratedAllocation(allocation: RoundAllocation): void {
       player.gamesPlayed += 1;
       player.roundsPresent = (player.roundsPresent ?? 0) + 1;
       player.roundsWaiting = 0;
+      if (isCrossDivisionCourt) {
+        player.crossDivisionCourtCount = (player.crossDivisionCourtCount ?? 0) + 1;
+        player.lastCrossDivisionRound = allocation.roundNumber;
+      }
       player.sittingOut = false;
       player.priorityGame = false;
       player.lastPartner = team.find((member) => member.id !== player.id)?.id ?? null;

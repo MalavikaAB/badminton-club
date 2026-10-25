@@ -417,15 +417,15 @@ test('separate-division spare court rotates equally ranked cross-division player
         '2026-01-01T00:00:00.000Z', 0, 0),
     ),
   ];
-  const spareCourtLineups = new Set<string>();
+  const spareCourtLineups: string[] = [];
 
-  for (let round = 1; round <= 6; round++) {
+  for (let round = 1; round <= 12; round++) {
     const allocation = generateRound(round, players, null, true, 5);
     assert.equal(allocation.courts.length, 5);
     assert.equal(allocation.waiting.length, 2);
     const spareCourt = allocation.courts[4];
     assert.equal(new Set(spareCourt.players.map((player) => player.division)).size, 2);
-    spareCourtLineups.add(spareCourt.players.map((player) => player.id).sort().join(','));
+    spareCourtLineups.push(spareCourt.players.map((player) => player.id).sort().join(','));
 
     const assigned = new Set(allocation.courts.flatMap((court) =>
       court.players.map((player) => player.id),
@@ -436,11 +436,19 @@ test('separate-division spare court rotates equally ranked cross-division player
       player.roundsWaiting = assigned.has(player.id) ? 0 : player.roundsWaiting + 1;
       if (assigned.has(player.id)) player.lastPlayedRound = round;
     }
+    for (const player of spareCourt.players) {
+      player.crossDivisionCourtCount = (player.crossDivisionCourtCount ?? 0) + 1;
+      player.lastCrossDivisionRound = round;
+    }
   }
 
   assert(
-    spareCourtLineups.size > 1,
-    `the cross-division spare court should rotate among players with equal play history: ${[...spareCourtLineups].join(' | ')}`,
+    spareCourtLineups.every((lineup, index) => index === 0 || lineup !== spareCourtLineups[index - 1]),
+    'the cross-division spare court should not repeat the same lineup in consecutive rounds',
+  );
+  assert(
+    Math.max(...players.map((player) => player.crossDivisionCourtCount ?? 0)) <= 4,
+    `fallback exposure should be spread across the full pool rather than remain on the same players: ${players.map((player) => `${player.id}=${player.crossDivisionCourtCount ?? 0}`).join(', ')}`,
   );
 });
 
