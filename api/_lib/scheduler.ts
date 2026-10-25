@@ -776,6 +776,18 @@ export function comparePriority(
     return a.roundsWaiting > 0 ? -1 : 1;
   }
 
+  // Give players from the previous open court first consideration for a
+  // standard court. Once they play a standard round, this preference clears.
+  const aRecentlyPlayedOpen =
+    (a.lastOpenDoublesRound ?? 0) > 0 &&
+    a.lastOpenDoublesRound === a.lastPlayedRound;
+  const bRecentlyPlayedOpen =
+    (b.lastOpenDoublesRound ?? 0) > 0 &&
+    b.lastOpenDoublesRound === b.lastPlayedRound;
+  if (aRecentlyPlayedOpen !== bRecentlyPlayedOpen) {
+    return aRecentlyPlayedOpen ? -1 : 1;
+  }
+
   if (Boolean(a.priorityGame) !== Boolean(b.priorityGame)) {
     return a.priorityGame ? -1 : 1;
   }
