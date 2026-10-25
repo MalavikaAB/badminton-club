@@ -127,7 +127,8 @@ export function generateRound(
     : buildBestFormatCourts(selected, courtCount);
   // If there are waiting players, try OPEN_DOUBLES format to utilize courts
   const hasWaitingPlayers = checkedInPlayers.some((p) => p.roundsWaiting > 0);
-  const updatedCourtFormats = hasWaitingPlayers && !courtFormats
+  const leftoverPlayers = checkedInPlayers.length % 4 !== 0;
+  const updatedCourtFormats = hasWaitingPlayers && leftoverPlayers && !courtFormats
     ? ['MIXED_DOUBLES', 'OPEN_DOUBLES']
     : courtFormats;
 
