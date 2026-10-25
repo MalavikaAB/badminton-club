@@ -4,7 +4,13 @@ export type GameFormat =
   | 'MENS_DOUBLES'
   | 'WOMENS_DOUBLES'
   | 'MIXED_DOUBLES'
+  // Retained so previously saved rounds can still be read; new rounds reject it.
   | 'OPEN_DOUBLES';
+
+export type PreferredFormat =
+  | 'NONE'
+  | 'SAME_GENDER_DOUBLES'
+  | 'MIXED_DOUBLES';
 
 export interface Player {
   id: string;
@@ -16,6 +22,9 @@ export interface Player {
   priorityGame?: boolean;
   /** Most recent club-night round this player was assigned to. */
   lastPlayedRound?: number;
+  /** Optional soft preferences used only when they improve a viable round. Players may name several preferred partners; they are partnered with a preferred player only when that player is also in the round pool. Never affects wait times, sit-outs or number of games. */
+  preferredPartnerIds: string[];
+  preferredFormat: PreferredFormat;
   /** ISO-8601 timestamp of check-in; epoch when unknown. */
   checkedInAt: string;
   gamesPlayed: number;
@@ -66,12 +75,16 @@ export function makePlayer(
   oppCount: Record<string, number> = {},
   lastPartner: string | null = null,
   lastOpponents: string[] = [],
+  preferredPartnerIds: string[] = [],
+  preferredFormat: PreferredFormat = 'NONE',
 ): Player {
   return {
     id,
     name,
     gender,
     division: division ?? '',
+    preferredPartnerIds: [...preferredPartnerIds],
+    preferredFormat,
     checkedInAt,
     gamesPlayed,
     roundsWaiting,

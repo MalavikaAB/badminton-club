@@ -24,11 +24,13 @@ create table if not exists players (
   beginner boolean not null default false,
   games_played integer not null default 0,
   rounds_waiting integer not null default 0,
-  active boolean not null default true
+  active boolean not null default true,
+  partner_preferences text[] not null default '{}'
 );
 alter table players add column if not exists rounds_waiting integer not null default 0;
 alter table players add column if not exists active boolean not null default true;
 alter table players add column if not exists beginner boolean not null default false;
+alter table players add column if not exists partner_preferences text[] not null default '{}';
 create table if not exists venue_sessions (
   id text primary key,
   weekday text not null,

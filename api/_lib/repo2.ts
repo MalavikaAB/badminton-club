@@ -27,6 +27,7 @@ export async function syncPairCounts(nightId: string): Promise<void> {
 export async function loadCheckedInPlayers(sessionId: string, nightId: string | null): Promise<Player[]> {
   const sql = db();
   const rows = await sql`select p.id, p.name, p.gender, p.division, p.beginner, p.games_played, p.rounds_waiting,
+    coalesce(p.partner_preferences, '{}') as partner_preferences,
     ci.checked_in_at, coalesce(ci.sit_out_rounds, 0) as sit_out_rounds,
     coalesce(ci.priority_game, false) as priority_game,
     (select count(*)::int from venue_rounds present_round
@@ -83,7 +84,8 @@ function toPlayer(r: any): Player {
   return {
     id: String(r.id), name: r.name, gender: r.gender as Gender,
     division: String(r.division ?? ''), beginner: r.beginner === true,
-    preferredPartnerId: null, preferredFormat: 'NONE', checkedInAt,
+    preferredPartnerIds: (r.partner_preferences ?? []).map((id: unknown) => String(id)),
+    preferredFormat: 'NONE', checkedInAt,
     gamesPlayed: Number(r.games_played ?? 0),
     roundsPresent: Number(r.rounds_present ?? 0),
     roundsWaiting: Number(r.rounds_waiting ?? 0),

@@ -40,6 +40,15 @@ export function relationshipRepeatPenalty(meetings: number): number {
 export const LAST_PARTNER_PENALTY = 1_000_000;
 export const LAST_OPPONENT_PENALTY = 1000;
 
+/**
+ * Soft bonus applied to a team when its two players are preferred partners.
+ * Deliberately small so it never overrides avoiding repeated partnerships,
+ * last-round partners, or legal formats. It only nudges partner pairing among
+ * players already selected for the round — it never changes wait times,
+ * sit-outs or the number of games.
+ */
+export const PREFERRED_PARTNER_BONUS = 25;
+
 export interface Split {
   teamA: Player[];
   teamB: Player[];
@@ -137,6 +146,18 @@ export function partneredLastRound(
   );
 }
 
+/**
+ * True when either player lists the other among their preferred partners.
+ * One-sided preference is enough to nudge a pairing; the round pool must
+ * already contain both players for this to have any effect.
+ */
+export function isPreferredPartner(a: Player, b: Player): boolean {
+  return (
+    (a.preferredPartnerIds ?? []).includes(b.id) ||
+    (b.preferredPartnerIds ?? []).includes(a.id)
+  );
+}
+
 export function courtRepeatCountOf(
   court: CourtAssignment,
 ): number {
@@ -197,6 +218,13 @@ export function courtCost(
       relationshipRepeatPenalty(pairWith(teamA[0], teamA[1])) +
       relationshipRepeatPenalty(pairWith(teamB[0], teamB[1]))
     );
+
+  /**
+   * Soft preferred-partner bonus: nudge two preferred partners onto the same
+   * team. Only applies when both players are already selected for this round.
+   */
+  if (isPreferredPartner(teamA[0], teamA[1])) cost -= PREFERRED_PARTNER_BONUS;
+  if (isPreferredPartner(teamB[0], teamB[1])) cost -= PREFERRED_PARTNER_BONUS;
 
   /**
    * Historical opponent repeats.

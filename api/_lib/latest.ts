@@ -39,7 +39,7 @@ export async function latestRound(
     const at = r.checked_in_at ? new Date(r.checked_in_at).toISOString() : EPOCH;
     const p: Player = { id: pid, name: r.name, gender: r.gender as Gender,
       division: String(r.division ?? ''), beginner: r.beginner === true,
-      preferredPartnerId: null, preferredFormat: 'NONE',
+      preferredPartnerIds: [], preferredFormat: 'NONE',
       priorityGame: r.priority_game === true,
       checkedInAt: at, gamesPlayed: Number(r.games_played ?? 0),
       roundsPresent: Number(r.rounds_present ?? 0),

@@ -245,14 +245,21 @@ function isSameOriginRequest(req: VercelRequest): boolean {
   }
 }
 
+function readPartnerPreferences(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  return [...new Set(value.map((v) => String(v)).filter((id) => id.length > 0))];
+}
+
 async function handlePlayers(req: VercelRequest, res: VercelResponse, method: string): Promise<void> {
   const sql = db();
   if (method === 'GET') {
-    const rows = await sql`select id, name, gender, division, beginner, games_played
+    const rows = await sql`select id, name, gender, division, beginner, games_played,
+      coalesce(partner_preferences, '{}') as partner_preferences
       from players where active = true order by name`;
     sendJson(res, 200, (rows as any[]).map((r) => ({
       id: String(r.id), name: r.name, gender: r.gender, division: r.division,
       beginner: r.beginner === true, gamesPlayed: Number(r.games_played),
+      partnerPreferences: (r.partner_preferences ?? []).map((id: unknown) => String(id)),
     })));
     return;
   }
@@ -262,6 +269,7 @@ async function handlePlayers(req: VercelRequest, res: VercelResponse, method: st
     const gender = body?.gender;
     const division = String(body?.division ?? '').trim();
     const beginner = body?.beginner === true;
+    const partnerPreferences = readPartnerPreferences(body?.partnerPreferences);
     if (!name || (gender !== 'MALE' && gender !== 'FEMALE') || !division) {
       sendError(res, 400, 'Name, gender and division are required');
       return;
@@ -274,10 +282,14 @@ async function handlePlayers(req: VercelRequest, res: VercelResponse, method: st
       sendError(res, 400, 'Only Division 10 players can be tagged as beginners');
       return;
     }
+    if (partnerPreferences === null) {
+      sendError(res, 400, 'Partner preferences must be a list of player ids');
+      return;
+    }
     const id = randomUUID();
-    await sql`insert into players (id, name, gender, division, beginner)
-      values (${id}::uuid, ${name}, ${gender}, ${division}, ${beginner})`;
-    sendJson(res, 200, { id, name, gender, division, beginner, gamesPlayed: 0 });
+    await sql`insert into players (id, name, gender, division, beginner, partner_preferences)
+      values (${id}::uuid, ${name}, ${gender}, ${division}, ${beginner}, ${partnerPreferences})`;
+    sendJson(res, 200, { id, name, gender, division, beginner, gamesPlayed: 0, partnerPreferences });
     return;
   }
   sendJson(res, 405, { message: 'Method not allowed' });
@@ -290,6 +302,15 @@ async function handlePlayerUpdate(req: VercelRequest, res: VercelResponse, playe
   const gender = body?.gender;
   const division = body?.division !== undefined ? String(body.division).trim() : undefined;
   const beginner = body?.beginner;
+  let partnerPreferences: string[] | undefined;
+  if (body?.partnerPreferences !== undefined) {
+    const parsed = readPartnerPreferences(body.partnerPreferences);
+    if (parsed === null) {
+      sendError(res, 400, 'Partner preferences must be a list of player ids');
+      return;
+    }
+    partnerPreferences = parsed;
+  }
   if (name !== undefined && name.length === 0) { sendError(res, 400, 'Name is required'); return; }
   if (gender !== undefined && gender !== 'MALE' && gender !== 'FEMALE') { sendError(res, 400, 'Gender must be MALE or FEMALE'); return; }
   if (division !== undefined && division.length === 0) { sendError(res, 400, 'Division is required'); return; }
@@ -307,14 +328,16 @@ async function handlePlayerUpdate(req: VercelRequest, res: VercelResponse, playe
       gender = case when ${gender !== undefined} then ${gender ?? null} else gender end,
       division = case when ${division !== undefined} then ${division ?? null} else division end,
       beginner = case when ${beginner !== undefined} then ${beginner ?? false}
-        when ${division !== undefined && division !== '10'} then false else beginner end
+        when ${division !== undefined && division !== '10'} then false else beginner end,
+      partner_preferences = case when ${partnerPreferences !== undefined} then ${partnerPreferences} else partner_preferences end
     where id = ${playerId} and active = true
-    returning id, name, gender, division, beginner, games_played`;
+    returning id, name, gender, division, beginner, games_played, partner_preferences`;
   if (!(updated as any[]).length) { sendError(res, 404, 'Player not found'); return; }
   const r = (updated as any[])[0];
   sendJson(res, 200, {
     id: String(r.id), name: r.name, gender: r.gender, division: r.division,
     beginner: r.beginner === true, gamesPlayed: Number(r.games_played),
+    partnerPreferences: partnerPreferences ?? (r.partner_preferences ?? []).map((id: unknown) => String(id)),
   });
 }
 

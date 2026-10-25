@@ -485,6 +485,11 @@ function beginEditingPlayer(playerId) {
   document.querySelector('#player-division').value = player.division;
   document.querySelector('#player-beginner').checked = Boolean(player.beginner);
   updateBeginnerControl();
+  renderPartnerOptions(playerId);
+  const prefSelect = document.querySelector('#player-partner-preferences');
+  prefSelect.querySelectorAll('option').forEach(option => {
+    option.selected = player.preferredPartnerIds?.includes(option.value) ?? false;
+  });
   const submit = document.querySelector('#player-submit');
   submit.textContent = 'Save changes';
   submit.disabled = false;
@@ -495,6 +500,7 @@ function beginEditingPlayer(playerId) {
 function cancelEditingPlayer() {
   editingPlayerId = null;
   document.querySelector('#player-form').reset();
+  renderPartnerOptions(null);
   const submit = document.querySelector('#player-submit');
   submit.innerHTML = 'Add player <span>+</span>';
   document.querySelector('#player-edit-cancel').hidden = true;
@@ -509,9 +515,29 @@ function updateBeginnerControl() {
   if (beginner.disabled) beginner.checked = false;
 }
 
+/** Fill the preferred-partners multi-select with every roster player except the one being edited. */
+function renderPartnerOptions(excludeId) {
+  const select = document.querySelector('#player-partner-preferences');
+  if (!select) return;
+  select.innerHTML = roster
+    .filter(player => player.id !== excludeId)
+    .map(player => `<option value="${player.id}">${escapeHtml(player.name)}</option>`)
+    .join('');
+}
+
+/** Names of a player's preferred partners, looked up from the roster. */
+function partnerNames(player) {
+  if (!player.preferredPartnerIds?.length) return '';
+  const names = player.preferredPartnerIds.map((id) => {
+    const other = roster.find((p) => p.id === id);
+    return other ? other.name : id;
+  });
+  return ` · Prefers to partner: ${names.join(', ')}`;
+}
+
 function renderPlayers() {
   document.querySelector('#players-list').innerHTML = roster.length ? roster.map(player => `
-    <div class="directory-row"><span><strong>${player.name}</strong><small>${player.gender === 'MALE' ? 'Male' : 'Female'} · Div ${player.division}${player.beginner ? ' · <span class="beginner-badge">Beginner</span>' : ''}</small></span><span class="row-actions"><button type="button" class="edit-button" data-edit-id="${player.id}" title="Edit ${player.name}">Edit</button><button type="button" class="remove-button" data-remove-id="${player.id}" title="Remove ${player.name}">Remove</button></span></div>`).join('') : '<p class="empty-state">No players added yet.</p>';
+    <div class="directory-row"><span><strong>${player.name}</strong><small>${player.gender === 'MALE' ? 'Male' : 'Female'} · Div ${player.division}${player.beginner ? ' · <span class="beginner-badge">Beginner</span>' : ''}${partnerNames(player)}</small></span><span class="row-actions"><button type="button" class="edit-button" data-edit-id="${player.id}" title="Edit ${player.name}">Edit</button><button type="button" class="remove-button" data-remove-id="${player.id}" title="Remove ${player.name}">Remove</button></span></div>`).join('') : '<p class="empty-state">No players added yet.</p>';
   document.querySelectorAll('[data-edit-id]').forEach(button => button.addEventListener('click', () => beginEditingPlayer(button.dataset.editId)));
   document.querySelectorAll('[data-remove-id]').forEach(button => button.addEventListener('click', async () => {
     const response = await fetch(`${apiBaseUrl}/players/${button.dataset.removeId}`, { method: 'DELETE' });
@@ -1770,11 +1796,14 @@ document.querySelector('#venue-form').addEventListener('submit', async event => 
 });
 document.querySelector('#player-form').addEventListener('submit', async event => {
   event.preventDefault();
+  const prefSelect = document.querySelector('#player-partner-preferences');
+  const partnerPreferences = Array.from(prefSelect.selectedOptions).map(option => option.value);
   const payload = {
     name: document.querySelector('#player-name').value.trim(),
     gender: document.querySelector('#player-gender').value,
     division: document.querySelector('#player-division').value,
-    beginner: document.querySelector('#player-beginner').checked
+    beginner: document.querySelector('#player-beginner').checked,
+    partnerPreferences
   };
   if (editingPlayerId) {
     const response = await fetch(`${apiBaseUrl}/players/${editingPlayerId}`, {
@@ -1807,6 +1836,7 @@ async function initializeRoster() {
   roster = await response.json();
   renderCheckins();
   renderPlayers();
+  renderPartnerOptions(null);
 }
 
 function initializeSessions() {
