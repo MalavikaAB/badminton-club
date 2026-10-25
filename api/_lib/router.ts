@@ -758,10 +758,6 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   } else {
     allocation = generateRound(next, players, formats, separate, maxCourts);
   }
-  if (allocation.courts.some((court) => court.format === 'OPEN_DOUBLES')) {
-    sendError(res, 400, 'Open doubles is not a supported court format');
-    return;
-  }
   if (!sessionId || !nightId) {
     sendJson(res, 200, serializeAllocation(allocation));
     return;
