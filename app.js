@@ -525,27 +525,94 @@ function renderPartnerOptions(excludeId) {
     .join('');
 }
 
-/** Names of a player's preferred partners, looked up from the roster. */
-function partnerNames(player) {
-  if (!player.preferredPartnerIds?.length) return '';
+/** HTML badges of a player's current preferred partners, shown next to their name. */
+function partnerListHtml(player) {
+  if (!player.preferredPartnerIds?.length) return '<span class="pref-none">(no preferred partners)</span>';
   const names = player.preferredPartnerIds.map((id) => {
     const other = roster.find((p) => p.id === id);
-    return other ? other.name : id;
+    return escapeHtml(other ? other.name : id);
   });
-  return ` · Prefers to partner: ${names.join(', ')}`;
+  return `<span class="pref-list">${names.map((n) => `<span class="pref-badge">${n}</span>`).join('')}</span>`;
+}
+
+/** Multi-select <option> elements for a player's preferred partners (everyone else in roster). */
+function preferenceSelectHtml(player) {
+  return roster
+    .filter((p) => p.id !== player.id)
+    .map(
+      (p) =>
+        `<option value="${p.id}"${player.preferredPartnerIds?.includes(p.id) ? ' selected' : ''}>${escapeHtml(
+          p.name,
+        )}</option>`,
+    )
+    .join('');
 }
 
 function renderPlayers() {
-  document.querySelector('#players-list').innerHTML = roster.length ? roster.map(player => `
-    <div class="directory-row"><span><strong>${player.name}</strong><small>${player.gender === 'MALE' ? 'Male' : 'Female'} · Div ${player.division}${player.beginner ? ' · <span class="beginner-badge">Beginner</span>' : ''}${partnerNames(player)}</small></span><span class="row-actions"><button type="button" class="edit-button" data-edit-id="${player.id}" title="Edit ${player.name}">Edit</button><button type="button" class="remove-button" data-remove-id="${player.id}" title="Remove ${player.name}">Remove</button></span></div>`).join('') : '<p class="empty-state">No players added yet.</p>';
-  document.querySelectorAll('[data-edit-id]').forEach(button => button.addEventListener('click', () => beginEditingPlayer(button.dataset.editId)));
-  document.querySelectorAll('[data-remove-id]').forEach(button => button.addEventListener('click', async () => {
-    const response = await fetch(`${apiBaseUrl}/players/${button.dataset.removeId}`, { method: 'DELETE' });
-    if (!response.ok) return;
-    roster = roster.filter(player => player.id !== button.dataset.removeId);
-    renderPlayers();
-    renderCheckins();
-  }));
+  document.querySelector('#players-list').innerHTML = roster.length
+    ? roster
+        .map(
+          (player) => `
+      <div class="directory-row">
+        <span>
+          <strong>${escapeHtml(player.name)}</strong>
+          <small>
+            ${player.gender === 'MALE' ? 'Male' : 'Female'} · Div ${player.division}${
+            player.beginner ? ' · <span class="beginner-badge">Beginner</span>' : ''
+          } ${partnerListHtml(player)}
+          </small>
+        </span>
+        <select multiple class="pref-select" data-pref-id="${player.id}">${preferenceSelectHtml(
+          player,
+        )}</select>
+        <button type="button" class="save-pref-button" data-save-pref="${player.id}" title="Save preferred partners for ${escapeHtml(
+          player.name,
+        )}">Save</button>
+        <span class="row-actions"><button type="button" class="edit-button" data-edit-id="${player.id}" title="Edit ${escapeHtml(
+          player.name,
+        )}">Edit</button><button type="button" class="remove-button" data-remove-id="${player.id}" title="Remove ${escapeHtml(
+          player.name,
+        )}">Remove</button></span>
+      </div>`,
+        )
+        .join('')
+    : '<p class="empty-state">No players added yet.</p>';
+  document.querySelectorAll('[data-edit-id]').forEach((button) =>
+    button.addEventListener('click', () => beginEditingPlayer(button.dataset.editId)),
+  );
+  document.querySelectorAll('[data-remove-id]').forEach((button) =>
+    button.addEventListener('click', async () => {
+      const response = await fetch(`${apiBaseUrl}/players/${button.dataset.removeId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) return;
+      roster = roster.filter((player) => player.id !== button.dataset.removeId);
+      renderPlayers();
+      renderCheckins();
+    }),
+  );
+  document.querySelectorAll('[data-save-pref]').forEach((button) =>
+    button.addEventListener('click', async () => {
+      const playerId = button.dataset.savePref;
+      const select = document.querySelector(`.pref-select[data-pref-id="${playerId}"]`);
+      if (!select) return;
+      const partnerPreferences = Array.from(select.selectedOptions).map((o) => o.value);
+      const response = await fetch(`${apiBaseUrl}/players/${playerId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partnerPreferences }),
+      });
+      if (!response.ok) {
+        const error = await readErrorMessage(response);
+        window.alert('Could not save preferences: ' + error);
+        return;
+      }
+      const updated = await response.json();
+      const index = roster.findIndex((player) => player.id === playerId);
+      if (index >= 0) roster[index] = updated;
+      renderPlayers();
+    }),
+  );
 }
 
 function setActiveView(viewId) {
