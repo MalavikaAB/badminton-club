@@ -9,6 +9,7 @@ import {
   buildCourt as buildCourt2,
   courtCostOf,
   courtRepeatCountOf,
+  isPreferredPartner,
   localSearch,
   replacePlayer,
   validForFormat,
@@ -406,8 +407,15 @@ export function balanceDivisionsAcrossCourts(
             const afterRepeatCount =
               splitI.repeatCount +
               splitJ.repeatCount;
+            const beforePreferredPairCount =
+              preferredPairCount(ci.teamA, ci.teamB) +
+              preferredPairCount(cj.teamA, cj.teamB);
+            const afterPreferredPairCount =
+              preferredPairCount(splitI.teamA, splitI.teamB) +
+              preferredPairCount(splitJ.teamA, splitJ.teamB);
 
             if (
+              afterPreferredPairCount < beforePreferredPairCount ||
               afterRepeatCount > beforeRepeatCount ||
               (afterRepeatCount === beforeRepeatCount && afterCost > beforeCost)
             ) {
@@ -449,6 +457,11 @@ export function balanceDivisionsAcrossCourts(
       break;
     }
   }
+}
+
+function preferredPairCount(teamA: Player[], teamB: Player[]): number {
+  return Number(isPreferredPartner(teamA[0], teamA[1])) +
+    Number(isPreferredPartner(teamB[0], teamB[1]));
 }
 
 /**

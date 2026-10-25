@@ -302,6 +302,50 @@ test('round allocation pairs preferred partners who are both assigned to play', 
   assert(partneredPairs.includes(['a', 'b'].join()));
 });
 
+test('preferred partners stay together across generated rounds when both are playing', () => {
+  const players = ['a', 'b', 'c', 'd'].map((id, index) =>
+    makePlayer(
+      id,
+      id,
+      'MALE',
+      '10',
+      new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+      0,
+      0,
+    ),
+  );
+  players[0].preferredPartnerIds = [players[1].id];
+  players[0].pairCount[players[1].id] = 2;
+
+  let together = 0;
+  const rounds = 20;
+  for (let round = 1; round <= rounds; round++) {
+    const allocation = generateRound(round, players, ['MENS_DOUBLES'], false, 1);
+    const court = allocation.courts[0];
+    const paired = [court.teamA, court.teamB].some((team) =>
+      team.some((player) => player.id === players[0].id) &&
+      team.some((player) => player.id === players[1].id),
+    );
+    if (paired) together++;
+
+    for (const team of [court.teamA, court.teamB]) {
+      const [a, b] = team;
+      a.pairCount[b.id] = (a.pairCount[b.id] ?? 0) + 1;
+      b.pairCount[a.id] = (b.pairCount[a.id] ?? 0) + 1;
+      a.lastPartner = b.id;
+      b.lastPartner = a.id;
+    }
+    for (const a of court.teamA) {
+      for (const b of court.teamB) {
+        a.oppCount[b.id] = (a.oppCount[b.id] ?? 0) + 1;
+        b.oppCount[a.id] = (b.oppCount[a.id] ?? 0) + 1;
+      }
+    }
+  }
+
+  assert.equal(together, rounds);
+});
+
 test('preferred partners are paired even when that creates a repeated opponent matchup', () => {
   const players = ['a', 'b', 'c', 'd'].map((id, index) =>
     makePlayer(

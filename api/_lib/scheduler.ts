@@ -10,7 +10,7 @@ import {
   buildAllCourts,
 } from './pairing.js';
 
-import { courtCostOf, courtRepeatCountOf } from './pairing2.js';
+import { courtCostOf, courtRepeatCountOf, isPreferredPartner } from './pairing2.js';
 
 const DEFAULT_COURTS = 6;
 
@@ -1006,6 +1006,7 @@ function buildBestFormatCourts(
   let best: CourtAssignment[] | null = null;
   let bestRepeatCount = Number.POSITIVE_INFINITY;
   let bestScore = Number.POSITIVE_INFINITY;
+  let bestPreferredPairCount = -1;
   let bestSameGenderCourtCount = -1;
   for (const plan of candidates) {
     const courts = buildAllCourts(selected, courtCount, plan);
@@ -1028,17 +1029,25 @@ function buildBestFormatCourts(
       (sum, court) => sum + courtRepeatCountOf(court),
       0,
     );
+    const preferredPairCount = courts.reduce(
+      (sum, court) => sum +
+        Number(isPreferredPartner(court.teamA[0], court.teamA[1])) +
+        Number(isPreferredPartner(court.teamB[0], court.teamB[1])),
+      0,
+    );
     const sameGenderCourtCount = counts.mens + counts.womens;
     if (
-      score < bestScore ||
-      (score === bestScore && repeatCount < bestRepeatCount) ||
-      (score === bestScore &&
+      preferredPairCount > bestPreferredPairCount ||
+      (preferredPairCount === bestPreferredPairCount && score < bestScore) ||
+      (preferredPairCount === bestPreferredPairCount && score === bestScore && repeatCount < bestRepeatCount) ||
+      (preferredPairCount === bestPreferredPairCount && score === bestScore &&
         repeatCount === bestRepeatCount &&
         sameGenderCourtCount > bestSameGenderCourtCount)
     ) {
       best = courts;
       bestRepeatCount = repeatCount;
       bestScore = score;
+      bestPreferredPairCount = preferredPairCount;
       bestSameGenderCourtCount = sameGenderCourtCount;
     }
   }
