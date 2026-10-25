@@ -209,13 +209,76 @@ select { appearance:none; padding-right:38px; background-image:linear-gradient(4
 .directory-row small { margin-left:0; font-size:12px; }
 .beginner-badge { display:inline-block; margin-left:5px; padding:2px 6px; border:1px solid #b45309; border-radius:4px; color:#8a3d08; font:600 10px 'DM Mono'; text-transform:uppercase; }
 #player-partner-preferences { width:100%; height:120px; }
-/* Inline partner-preference controls next to each player in the directory. */
-.directory-row { flex-wrap: wrap; }
-.pref-select { width: 210px; height: 90px; font-size: 11px; margin-left: 8px; vertical-align: top; background: var(--panel); border: 1px solid var(--line); color: var(--ink); }
-.pref-list { margin-left: 8px; }
-.pref-badge { display: inline-block; font-size: 11px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 10px; margin: 1px 4px 1px 0; background: rgba(27,107,75,.12); color: var(--green); }
-.pref-none { color: var(--muted); font-size: 11px; font-style: italic; }
-.save-pref-button { font-size: 11px; padding: 3px 8px; margin-left: 6px; vertical-align: top; }
+/* Player directory row layout (avatar + name/gender/div + preferred partner dropdown). */
+.directory-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid var(--line);
+  padding: 15px 0;
+  color: var(--ink);
+  font: 15px 'Space Grotesk';
+  text-transform: none;
+}
+.directory-avatar {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #dcfce7;
+  color: #15803d;
+  font: 700 14px 'DM Mono', monospace;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+.directory-info { flex: 1 1 auto; min-width: 0; }
+.directory-name {
+  font: 600 16px 'Space Grotesk';
+  color: var(--ink);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.directory-sub {
+  font: 400 12px 'DM Mono', monospace;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.directory-pref {
+  flex: 0 0 auto;
+  width: 220px;
+  min-width: 220px;
+}
+.pref-label {
+  font: 600 10px 'DM Mono', monospace;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.pref-select {
+  width: 100%;
+  height: 34px;
+  font-size: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 0 10px;
+  appearance: none;
+  background-image: none;
+}
+.pref-select:focus {
+  outline: none;
+  border-color: var(--green);
+}
+.row-actions { display: flex; flex-direction: row; gap: 14px; margin-left: auto; align-items: center; flex: 0 0 auto; }
+.edit-button,
+.remove-button { border: 0; background: transparent; cursor: pointer; padding: 6px 0; font: 600 14px 'Space Grotesk'; }
+.edit-button { color: var(--green); border-bottom: 1px solid rgba(27,107,75,.35); }
+.remove-button { color: var(--coral); border-bottom: 1px solid rgba(231,111,81,.4); }
 .row-actions { display:flex; flex-direction:row; gap:14px; margin-left:auto; align-items:center; flex:0 0 auto; }
 .edit-button,.remove-button { border:0; background:transparent; cursor:pointer; padding:6px 0; font:600 14px 'Space Grotesk'; }
 .edit-button { color:var(--green); border-bottom:1px solid rgba(27,107,75,.35); }

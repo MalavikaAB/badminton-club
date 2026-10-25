@@ -515,28 +515,29 @@ function updateBeginnerControl() {
   if (beginner.disabled) beginner.checked = false;
 }
 
-/** Fill the preferred-partners multi-select with every roster player except the one being edited. */
+/** Fill the preferred-partners multi-select in the Add/Edit player form. */
 function renderPartnerOptions(excludeId) {
   const select = document.querySelector('#player-partner-preferences');
   if (!select) return;
   select.innerHTML = roster
-    .filter(player => player.id !== excludeId)
-    .map(player => `<option value="${player.id}">${escapeHtml(player.name)}</option>`)
+    .filter((player) => player.id !== excludeId)
+    .map((player) => `<option value="${player.id}">${escapeHtml(player.name)}</option>`)
     .join('');
 }
 
-/** HTML badges of a player's current preferred partners, shown next to their name. */
-function partnerListHtml(player) {
-  if (!player.preferredPartnerIds?.length) return '<span class="pref-none">(no preferred partners)</span>';
-  const names = player.preferredPartnerIds.map((id) => {
-    const other = roster.find((p) => p.id === id);
-    return escapeHtml(other ? other.name : id);
-  });
-  return `<span class="pref-list">${names.map((n) => `<span class="pref-badge">${n}</span>`).join('')}</span>`;
+/** Initials for a player's avatar (first letters of first and last name). */
+function playerInitials(name) {
+  return String(name)
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || '?';
 }
 
-/** Multi-select <option> elements for a player's preferred partners (everyone else in roster). */
-function preferenceSelectHtml(player) {
+/** <option> elements for the preferred-partner dropdown (everyone else in roster). */
+function preferenceOptionsHtml(player) {
   return roster
     .filter((p) => p.id !== player.id)
     .map(
@@ -554,20 +555,22 @@ function renderPlayers() {
         .map(
           (player) => `
       <div class="directory-row">
-        <span>
-          <strong>${escapeHtml(player.name)}</strong>
-          <small>
+        <div class="directory-avatar">${playerInitials(player.name)}</div>
+        <div class="directory-info">
+          <div class="directory-name">${escapeHtml(player.name)}</div>
+          <div class="directory-sub">
             ${player.gender === 'MALE' ? 'Male' : 'Female'} · Div ${player.division}${
             player.beginner ? ' · <span class="beginner-badge">Beginner</span>' : ''
-          } ${partnerListHtml(player)}
-          </small>
-        </span>
-        <select multiple class="pref-select" data-pref-id="${player.id}">${preferenceSelectHtml(
-          player,
-        )}</select>
-        <button type="button" class="save-pref-button" data-save-pref="${player.id}" title="Save preferred partners for ${escapeHtml(
-          player.name,
-        )}">Save</button>
+          }
+          </div>
+        </div>
+        <div class="directory-pref">
+          <div class="pref-label">Preferred Partner</div>
+          <select class="pref-select" data-pref-id="${player.id}">
+            <option value="">None</option>
+            ${preferenceOptionsHtml(player)}
+          </select>
+        </div>
         <span class="row-actions"><button type="button" class="edit-button" data-edit-id="${player.id}" title="Edit ${escapeHtml(
           player.name,
         )}">Edit</button><button type="button" class="remove-button" data-remove-id="${player.id}" title="Remove ${escapeHtml(
@@ -591,12 +594,11 @@ function renderPlayers() {
       renderCheckins();
     }),
   );
-  document.querySelectorAll('[data-save-pref]').forEach((button) =>
-    button.addEventListener('click', async () => {
-      const playerId = button.dataset.savePref;
-      const select = document.querySelector(`.pref-select[data-pref-id="${playerId}"]`);
-      if (!select) return;
-      const partnerPreferences = Array.from(select.selectedOptions).map((o) => o.value);
+  document.querySelectorAll('.pref-select').forEach((select) =>
+    select.addEventListener('change', async (event) => {
+      const playerId = event.target.dataset.prefId;
+      const partnerId = event.target.value;
+      const partnerPreferences = partnerId ? [partnerId] : [];
       const response = await fetch(`${apiBaseUrl}/players/${playerId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -604,13 +606,13 @@ function renderPlayers() {
       });
       if (!response.ok) {
         const error = await readErrorMessage(response);
-        window.alert('Could not save preferences: ' + error);
+        window.alert('Could not save preferred partner: ' + error);
+        event.target.value = roster.find((p) => p.id === playerId)?.preferredPartnerIds?.[0] ?? '';
         return;
       }
       const updated = await response.json();
       const index = roster.findIndex((player) => player.id === playerId);
       if (index >= 0) roster[index] = updated;
-      renderPlayers();
     }),
   );
 }
