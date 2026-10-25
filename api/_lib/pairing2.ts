@@ -139,14 +139,23 @@ export function partneredLastRound(
 
 /**
  * True when either player lists the other among their preferred partners.
- * One-sided preference is enough to nudge a pairing; the round pool must
- * already contain both players for this to have any effect.
+ * One-sided preference is enough to qualify a pair. Preferred pairs are
+ * maximized before history costs when allocating and splitting courts.
  */
 export function isPreferredPartner(a: Player, b: Player): boolean {
   return (
     (a.preferredPartnerIds ?? []).includes(b.id) ||
     (b.preferredPartnerIds ?? []).includes(a.id)
   );
+}
+
+function preferredPairCount(teamA: Player[], teamB: Player[]): number {
+  return Number(isPreferredPartner(teamA[0], teamA[1])) +
+    Number(isPreferredPartner(teamB[0], teamB[1]));
+}
+
+function preferredCourtPairCount(court: CourtAssignment): number {
+  return preferredPairCount(court.teamA, court.teamB);
 }
 
 export function courtRepeatCountOf(
@@ -446,18 +455,16 @@ export function bestSplit(
         teamB,
       );
     const repeatCount = repeatCountOf(teamA, teamB);
-    const preferredPairCount =
-      Number(isPreferredPartner(teamA[0], teamA[1])) +
-      Number(isPreferredPartner(teamB[0], teamB[1]));
+    const preferredCount = preferredPairCount(teamA, teamB);
 
     if (
-      cost < bestCost ||
-      (cost === bestCost && preferredPairCount > bestPreferredPairCount) ||
-      (cost === bestCost && preferredPairCount === bestPreferredPairCount && repeatCount < bestRepeatCount)
+      preferredCount > bestPreferredPairCount ||
+      (preferredCount === bestPreferredPairCount && cost < bestCost) ||
+      (preferredCount === bestPreferredPairCount && cost === bestCost && repeatCount < bestRepeatCount)
     ) {
       bestRepeatCount = repeatCount;
       bestCost = cost;
-      bestPreferredPairCount = preferredPairCount;
+      bestPreferredPairCount = preferredCount;
       bestA = teamA;
       bestB = teamB;
     }
@@ -565,9 +572,14 @@ export function localSearch(
       (total, court) => total + courtCostOf(court),
       0,
     );
+    const currentPreferredPairCount = courts.reduce(
+      (total, court) => total + preferredCourtPairCount(court),
+      0,
+    );
 
     let bestRepeatCount = currentRepeatCount;
     let bestCost = currentCost;
+    let bestPreferredPairCount = currentPreferredPairCount;
     let bestMove: {
       courtAIndex: number;
       courtBIndex: number;
@@ -620,16 +632,24 @@ export function localSearch(
               courtCostOf(courtB) +
               splitA.cost +
               splitB.cost;
+            const nextPreferredPairCount =
+              currentPreferredPairCount -
+              preferredCourtPairCount(courtA) -
+              preferredCourtPairCount(courtB) +
+              preferredPairCount(splitA.teamA, splitA.teamB) +
+              preferredPairCount(splitB.teamA, splitB.teamB);
 
             if (
-              nextCost > bestCost ||
-              (nextCost === bestCost && nextRepeatCount >= bestRepeatCount)
+              nextPreferredPairCount < bestPreferredPairCount ||
+              (nextPreferredPairCount === bestPreferredPairCount && nextCost > bestCost) ||
+              (nextPreferredPairCount === bestPreferredPairCount && nextCost === bestCost && nextRepeatCount >= bestRepeatCount)
             ) {
               continue;
             }
 
             bestRepeatCount = nextRepeatCount;
             bestCost = nextCost;
+            bestPreferredPairCount = nextPreferredPairCount;
             bestMove = {
               courtAIndex: i,
               courtBIndex: j,
@@ -697,7 +717,7 @@ function take(
 }
 
 /**
- * Build the cheapest legal foursome for a format.
+ * Build a legal foursome, prioritizing preferred pairs before history cost.
  *
  * This is where the algorithm actually decides which four players
  * should occupy the court.
@@ -730,6 +750,7 @@ export function buildCourtFromPool(
 
   let bestRepeatCount = Infinity;
   let bestCost = Infinity;
+  let bestPreferredPairCount = -1;
 
   for (
     let i = 0;
@@ -781,14 +802,17 @@ export function buildCourtFromPool(
             continue;
           }
 
+          const candidatePreferredPairCount = preferredPairCount(split.teamA, split.teamB);
           if (
-            split.cost < bestCost ||
-            (split.cost === bestCost && split.repeatCount < bestRepeatCount)
+            candidatePreferredPairCount > bestPreferredPairCount ||
+            (candidatePreferredPairCount === bestPreferredPairCount && split.cost < bestCost) ||
+            (candidatePreferredPairCount === bestPreferredPairCount && split.cost === bestCost && split.repeatCount < bestRepeatCount)
           ) {
             bestRepeatCount =
               split.repeatCount;
             bestCost =
               split.cost;
+            bestPreferredPairCount = candidatePreferredPairCount;
 
             bestPlayers = four;
             bestTeamA =
@@ -831,7 +855,7 @@ export function buildCourtFromPool(
 }
 
 /**
- * Build a mixed doubles court.
+ * Build a mixed doubles court, prioritizing preferred pairs before history cost.
  *
  * Exactly two men and two women are required.
  */
@@ -862,6 +886,7 @@ export function buildMixedCourt(
 
   let bestRepeatCount = Infinity;
   let bestCost = Infinity;
+  let bestPreferredPairCount = -1;
 
   for (
     let i = 0;
@@ -904,14 +929,17 @@ export function buildMixedCourt(
             continue;
           }
 
+          const candidatePreferredPairCount = preferredPairCount(split.teamA, split.teamB);
           if (
-            split.cost < bestCost ||
-            (split.cost === bestCost && split.repeatCount < bestRepeatCount)
+            candidatePreferredPairCount > bestPreferredPairCount ||
+            (candidatePreferredPairCount === bestPreferredPairCount && split.cost < bestCost) ||
+            (candidatePreferredPairCount === bestPreferredPairCount && split.cost === bestCost && split.repeatCount < bestRepeatCount)
           ) {
             bestRepeatCount =
               split.repeatCount;
             bestCost =
               split.cost;
+            bestPreferredPairCount = candidatePreferredPairCount;
 
             bestPlayers = four;
             bestTeamA =

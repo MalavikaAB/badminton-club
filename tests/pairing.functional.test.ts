@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { bestSplit, buildCourt as buildCourtForFormat, courtCost, relationshipRepeatPenalty } from '../api/_lib/pairing2.js';
+import { buildAllCourts } from '../api/_lib/pairing.js';
 import { comparePriority, generateRound } from '../api/_lib/scheduler.js';
 import { qualityReport, summarisePairings } from '../api/_lib/pairingQuality.js';
 import { makePlayer, type Player } from '../api/_lib/types.js';
@@ -252,7 +253,7 @@ test('preferred partners are favoured when pairings are otherwise equal', () => 
   );
 });
 
-test('preferred partners do not override avoiding a repeated partnership', () => {
+test('preferred partners are paired even when their partnership has repeated', () => {
   const players = ['a', 'b', 'c', 'd'].map((id, index) =>
     makePlayer(
       id,
@@ -273,10 +274,35 @@ test('preferred partners do not override avoiding a repeated partnership', () =>
     [split.teamB[0].id, split.teamB[1].id].sort().join(),
   ];
 
-  assert(!partneredPairs.includes(['a', 'b'].join()));
+  assert(partneredPairs.includes(['a', 'b'].join()));
 });
 
-test('preferred partners do not override avoiding a repeated opponent matchup', () => {
+test('round allocation pairs preferred partners who are both assigned to play', () => {
+  const players = ['a', 'b', 'c', 'd'].map((id, index) =>
+    makePlayer(
+      id,
+      id,
+      'MALE',
+      '10',
+      new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+      0,
+      0,
+    ),
+  );
+  players[0].preferredPartnerIds = [players[1].id];
+  // Existing repeat history would normally favor a different split.
+  players[0].pairCount[players[1].id] = 1;
+
+  const [court] = buildAllCourts(players, 1, ['MENS_DOUBLES']);
+  const partneredPairs = [
+    [court.teamA[0].id, court.teamA[1].id].sort().join(),
+    [court.teamB[0].id, court.teamB[1].id].sort().join(),
+  ];
+
+  assert(partneredPairs.includes(['a', 'b'].join()));
+});
+
+test('preferred partners are paired even when that creates a repeated opponent matchup', () => {
   const players = ['a', 'b', 'c', 'd'].map((id, index) =>
     makePlayer(
       id,
@@ -298,7 +324,7 @@ test('preferred partners do not override avoiding a repeated opponent matchup', 
     [split.teamB[0].id, split.teamB[1].id].sort().join(),
   ];
 
-  assert(!partneredPairs.includes(['a', 'b'].join()));
+  assert(partneredPairs.includes(['a', 'b'].join()));
 });
 
 test('players with fewer games get priority when wait rounds are equal', () => {
