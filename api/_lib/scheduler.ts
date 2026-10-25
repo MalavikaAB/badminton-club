@@ -746,14 +746,19 @@ function compareSpareCourtPriority(a: Player, b: Player): number {
 
 /** Move recent fallback players back into their regular division courts. */
 function compareStrictDivisionPriority(a: Player, b: Player): number {
-  const priorityDifference = comparePriorityBeforeName(a, b);
-  if (priorityDifference) return priorityDifference;
+  if ((a.roundsWaiting > 0) !== (b.roundsWaiting > 0)) {
+    return a.roundsWaiting > 0 ? -1 : 1;
+  }
+  if (Boolean(a.priorityGame) !== Boolean(b.priorityGame)) {
+    return a.priorityGame ? -1 : 1;
+  }
   const fallbackCountDifference =
     (b.crossDivisionCourtCount ?? 0) - (a.crossDivisionCourtCount ?? 0);
   if (fallbackCountDifference) return fallbackCountDifference;
   const fallbackRoundDifference =
     (b.lastCrossDivisionRound ?? 0) - (a.lastCrossDivisionRound ?? 0);
-  return fallbackRoundDifference || a.name.localeCompare(b.name);
+  if (fallbackRoundDifference) return fallbackRoundDifference;
+  return comparePriorityBeforeName(a, b) || a.name.localeCompare(b.name);
 }
 
 /** Compare all queue-priority fields while excluding the stable name tie-break. */
