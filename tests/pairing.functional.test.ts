@@ -276,6 +276,31 @@ test('preferred partners do not override avoiding a repeated partnership', () =>
   assert(!partneredPairs.includes(['a', 'b'].join()));
 });
 
+test('preferred partners do not override avoiding a repeated opponent matchup', () => {
+  const players = ['a', 'b', 'c', 'd'].map((id, index) =>
+    makePlayer(
+      id,
+      id,
+      'MALE',
+      '10',
+      new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+      0,
+      0,
+    ),
+  );
+  players[0].preferredPartnerIds = [players[1].id];
+  // The split that puts a/b together would make a/d repeat opponents.
+  players[0].oppCount[players[3].id] = 1;
+
+  const split = bestSplit(players, 'MENS_DOUBLES');
+  const partneredPairs = [
+    [split.teamA[0].id, split.teamA[1].id].sort().join(),
+    [split.teamB[0].id, split.teamB[1].id].sort().join(),
+  ];
+
+  assert(!partneredPairs.includes(['a', 'b'].join()));
+});
+
 test('players with fewer games get priority when wait rounds are equal', () => {
   const players = [
     makePlayer('many-games', 'Many Games', 'MALE', '10', '2026-01-01T00:00:00.000Z', 10, 0),
