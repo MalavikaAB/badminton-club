@@ -398,6 +398,52 @@ test('separate divisions fill an available court with players left across divisi
   assert.equal(allocation.waiting.length, 2);
 });
 
+test('separate-division spare court rotates equally ranked cross-division players', () => {
+  const players = [
+    ...Array.from({ length: 9 }, (_, index) =>
+      makePlayer(`man-${index}`, `Man ${index}`, 'MALE', 'A',
+        '2026-01-01T00:00:00.000Z', 0, 0),
+    ),
+    ...Array.from({ length: 2 }, (_, index) =>
+      makePlayer(`woman-a-${index}`, `Woman A ${index}`, 'FEMALE', 'A',
+        '2026-01-01T00:00:00.000Z', 0, 0),
+    ),
+    ...Array.from({ length: 2 }, (_, index) =>
+      makePlayer(`man-b-${index}`, `Man B ${index}`, 'MALE', 'B',
+        '2026-01-01T00:00:00.000Z', 0, 0),
+    ),
+    ...Array.from({ length: 9 }, (_, index) =>
+      makePlayer(`woman-${index}`, `Woman ${index}`, 'FEMALE', 'B',
+        '2026-01-01T00:00:00.000Z', 0, 0),
+    ),
+  ];
+  const spareCourtLineups = new Set<string>();
+
+  for (let round = 1; round <= 6; round++) {
+    const allocation = generateRound(round, players, null, true, 5);
+    assert.equal(allocation.courts.length, 5);
+    assert.equal(allocation.waiting.length, 2);
+    const spareCourt = allocation.courts[4];
+    assert.equal(new Set(spareCourt.players.map((player) => player.division)).size, 2);
+    spareCourtLineups.add(spareCourt.players.map((player) => player.id).sort().join(','));
+
+    const assigned = new Set(allocation.courts.flatMap((court) =>
+      court.players.map((player) => player.id),
+    ));
+    for (const player of players) {
+      player.roundsPresent = (player.roundsPresent ?? 0) + 1;
+      if (assigned.has(player.id)) player.gamesPlayed++;
+      player.roundsWaiting = assigned.has(player.id) ? 0 : player.roundsWaiting + 1;
+      if (assigned.has(player.id)) player.lastPlayedRound = round;
+    }
+  }
+
+  assert(
+    spareCourtLineups.size > 1,
+    `the cross-division spare court should rotate among players with equal play history: ${[...spareCourtLineups].join(' | ')}`,
+  );
+});
+
 test('a player who sat out last round plays when a legal alternative exists', () => {
   const players = [
     ...Array.from({ length: 4 }, (_, index) =>

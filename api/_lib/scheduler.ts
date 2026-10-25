@@ -168,6 +168,7 @@ function selectBestPlayers(
   candidates: Player[],
   requiredPlayers: number,
   optimizationCandidates: Player[] = candidates,
+  rotateEqualPriority = false,
 ): Player[] {
   if (candidates.length <= requiredPlayers) {
     return [...candidates];
@@ -249,7 +250,10 @@ function selectBestPlayers(
     for (const incoming of waiting) {
       for (let i = 0; i < selected.length; i++) {
         const outgoing = selected[i];
-        if (comparePriority(incoming, outgoing) > 0) continue;
+        const priorityComparison = rotateEqualPriority
+          ? comparePriorityBeforeName(incoming, outgoing)
+          : comparePriority(incoming, outgoing);
+        if (priorityComparison > 0) continue;
 
         const next = [...selected];
         next[i] = incoming;
@@ -657,13 +661,12 @@ function generateSeparatedRound(
   const extraCourts: CourtAssignment[] = [];
   for (let count = extraCourtsAvailable; count > 0; count--) {
     const requiredPlayers = count * 4;
+    const rotatingRemaining = rotateEqualPriorityPlayers(remaining, roundNumber);
     const selected = selectBestPlayers(
-      remaining,
+      rotatingRemaining,
       requiredPlayers,
-      remaining.slice(0, Math.min(
-        remaining.length,
-        requiredPlayers + count * EXTRA_CANDIDATES_PER_COURT,
-      )),
+      rotatingRemaining,
+      true,
     );
     if (!canFieldCourtCount(selected, count)) continue;
     extraCourts.push(...buildBestFormatCourts(selected, count));
@@ -682,6 +685,47 @@ function generateSeparatedRound(
       resting,
     ),
   };
+}
+
+/**
+ * Rotate the final deterministic name tie-break among players with the same
+ * scheduling priority. This keeps queue priorities intact while preventing
+ * the cross-division spare court from repeatedly taking the same names.
+ */
+function rotateEqualPriorityPlayers(players: Player[], roundNumber: number): Player[] {
+  const ordered = [...players].sort(comparePriority);
+  const result: Player[] = [];
+  for (let start = 0; start < ordered.length;) {
+    let end = start + 1;
+    while (
+      end < ordered.length &&
+      comparePriorityBeforeName(ordered[start], ordered[end]) === 0
+    ) end++;
+
+    const group = ordered.slice(start, end);
+    const offset = (Math.max(1, roundNumber) - 1) % group.length;
+    result.push(...group.slice(offset), ...group.slice(0, offset));
+    start = end;
+  }
+  return result;
+}
+
+/** Compare all queue-priority fields while excluding the stable name tie-break. */
+function comparePriorityBeforeName(a: Player, b: Player): number {
+  if ((a.roundsWaiting > 0) !== (b.roundsWaiting > 0)) {
+    return a.roundsWaiting > 0 ? -1 : 1;
+  }
+  if (Boolean(a.priorityGame) !== Boolean(b.priorityGame)) {
+    return a.priorityGame ? -1 : 1;
+  }
+  const rateDifference = gamesPerRoundPresent(a) - gamesPerRoundPresent(b);
+  if (rateDifference) return rateDifference;
+  if (a.roundsWaiting !== b.roundsWaiting) return b.roundsWaiting - a.roundsWaiting;
+  if ((a.lastPlayedRound ?? 0) !== (b.lastPlayedRound ?? 0)) {
+    return (a.lastPlayedRound ?? 0) - (b.lastPlayedRound ?? 0);
+  }
+  if (a.checkedInAt !== b.checkedInAt) return a.checkedInAt < b.checkedInAt ? -1 : 1;
+  return 0;
 }
 
 function compareDivisionPlans(
@@ -761,47 +805,7 @@ export function comparePriority(
   a: Player,
   b: Player,
 ): number {
-  if ((a.roundsWaiting > 0) !== (b.roundsWaiting > 0)) {
-    return a.roundsWaiting > 0 ? -1 : 1;
-  }
-
-  if (Boolean(a.priorityGame) !== Boolean(b.priorityGame)) {
-    return a.priorityGame ? -1 : 1;
-  }
-
-  const rateDifference =
-    gamesPerRoundPresent(a) - gamesPerRoundPresent(b);
-  if (rateDifference !== 0) {
-    return rateDifference;
-  }
-
-  if (
-    a.roundsWaiting !==
-    b.roundsWaiting
-  ) {
-    return (
-      b.roundsWaiting -
-      a.roundsWaiting
-    );
-  }
-
-  if ((a.lastPlayedRound ?? 0) !== (b.lastPlayedRound ?? 0)) {
-    return (a.lastPlayedRound ?? 0) - (b.lastPlayedRound ?? 0);
-  }
-
-  if (
-    a.checkedInAt !==
-    b.checkedInAt
-  ) {
-    return a.checkedInAt <
-      b.checkedInAt
-      ? -1
-      : 1;
-  }
-
-  return a.name.localeCompare(
-    b.name,
-  );
+  return comparePriorityBeforeName(a, b) || a.name.localeCompare(b.name);
 }
 
 function gamesPerRoundPresent(player: Player): number {
