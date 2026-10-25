@@ -118,7 +118,6 @@
       <aside class="waiting-panel">
         <div class="section-heading"><div><p class="eyebrow" id="queue-eyebrow">QUEUE</p><h2 id="queue-heading">Waiting</h2></div><span class="queue-count" id="queue-count">0</span></div>
         <label class="toggle-row" for="separate-divisions"><input type="checkbox" id="separate-divisions" checked><span>Keep divs on separate courts</span></label>
-        <label class="toggle-row" for="open-doubles-spare-court"><input type="checkbox" id="open-doubles-spare-court"><span>Use open doubles to fill a spare court</span></label>
         <button class="primary-button" id="next-round-button">Generate next round <span>→</span></button>
         <button class="secondary-button manual-mode-button" id="manual-round-button" type="button">Build round manually</button>
         <ol id="waiting-list"></ol>
@@ -203,6 +202,19 @@
       <div id="statistics-matrix" class="statistics-matrix"></div>
     </section>
   </main>
+  <div id="spare-court-modal" class="modal hidden" role="dialog" aria-labelledby="spare-court-title">
+    <div class="modal-card">
+      <p class="eyebrow">OPEN DOUBLES SPARE COURT</p>
+      <h2 id="spare-court-title">Choose four players</h2>
+      <p class="muted">Select four players from the queue to fill this court.</p>
+      <p id="spare-court-selection-count" class="spare-selection-count">0 of 4 selected</p>
+      <ol id="spare-court-queue" class="spare-court-queue"></ol>
+      <div class="spare-modal-actions">
+        <button type="button" class="secondary-button" id="spare-court-cancel">Cancel</button>
+        <button type="button" class="primary-button" id="spare-court-save" disabled>Add to court</button>
+      </div>
+    </div>
+  </div>
   <div id="swap-modal" class="modal hidden" role="dialog" aria-labelledby="swap-title">
     <div class="modal-card">
       <p class="eyebrow">SWAP OPTIONS</p>
@@ -221,6 +233,6 @@
       <button class="secondary-button" id="manual-fill-cancel">Cancel</button>
     </div>
   </div>
-  <script src="app.js?v=20261025-open-doubles-spare-court"></script>
+  <script src="app.js?v=20261025-spare-court-layout"></script>
 </body>
 </html>

@@ -5,7 +5,7 @@ import { db } from './db.js';
 import { ensureSchema } from './schema.js';
 import { comparePriority, generateRound } from './scheduler.js';
 import { EPOCH, type CourtAssignment, type GameFormat, type Gender, type Player, type RoundAllocation } from './types.js';
-import { splitLegalForFormat } from './pairing2.js';
+import { buildCourt as buildCourtForFormat, splitLegalForFormat } from './pairing2.js';
 import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions, createSession, updateSession, setSessionActive } from './repo.js';
 import {
   loadCheckedInPlayers,
@@ -206,6 +206,10 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
       }
       if (method === 'POST' && root[2] === 'swap' && root.length === 3) {
         await handleSwap(req, res, sessionId);
+        return;
+      }
+      if (method === 'POST' && root[2] === 'open-doubles-spare' && root.length === 3) {
+        await handleOpenDoublesSpare(req, res, sessionId);
         return;
       }
       if (method === 'POST' && root[2] === 'end-night' && root.length === 3) {
@@ -702,13 +706,99 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
   }));
 }
 
+async function handleOpenDoublesSpare(req: VercelRequest, res: VercelResponse, sessionId: string): Promise<void> {
+  const sql = db();
+  const body = await readJson(req);
+  await resetStaleNight(sessionId);
+  const nightId = await openNightId(sessionId);
+  if (!nightId) { sendError(res, 400, 'Start the club night before filling a spare court'); return; }
+
+  const checked = await loadCheckedInPlayers(sessionId, nightId);
+  const requestedIds: string[] | null = Array.isArray(body?.playerIds)
+    ? body.playerIds.map((id: unknown) => String(id))
+    : null;
+  const requestedCourtNumber = body?.courtNumber === undefined ? null : Number(body.courtNumber);
+  const result = await sql.begin(async (tx: any) => {
+    const rounds = await tx`select r.id as round_id, r.round_number, n.id as night_id, s.courts
+      from venue_rounds r
+      join venue_nights n on n.id = r.night_id
+      join venue_sessions s on s.id = n.session_id
+      where n.session_id = ${sessionId} and n.status = 'OPEN'
+      order by r.round_number desc limit 1 for update of r`;
+    const round = (rounds as any[])[0];
+    if (!round) return { error: 'Generate a round before filling a spare court' };
+
+    const existing = await tx`select player_id, court_number
+      from venue_round_players where round_id = ${round.round_id}::uuid`;
+    const assignedIds = new Set((existing as any[]).map((row) => String(row.player_id)));
+    const occupiedCourts = new Set((existing as any[]).map((row) => Number(row.court_number)));
+    const maxCourts = Number(round.courts ?? 0);
+    let courtNumber = requestedCourtNumber;
+    if (courtNumber === null) {
+      for (let court = 1; court <= maxCourts; court++) {
+        if (!occupiedCourts.has(court)) { courtNumber = court; break; }
+      }
+    }
+    if (!Number.isInteger(courtNumber) || courtNumber! < 1 || courtNumber! > maxCourts) {
+      return { error: 'There is no spare court available for this round' };
+    }
+    if (occupiedCourts.has(courtNumber!)) return { error: 'That spare court has already been filled' };
+
+    const available = checked
+      .filter((player) => !assignedIds.has(player.id) && !player.sittingOut)
+      .sort((a, b) =>
+        (a.fallbackCourtCount ?? 0) - (b.fallbackCourtCount ?? 0)
+        || (a.lastFallbackCourtRound ?? 0) - (b.lastFallbackCourtRound ?? 0)
+        || comparePriority(a, b),
+      );
+    let selected: Player[];
+    if (requestedIds) {
+      if (requestedIds.length !== 4 || new Set(requestedIds).size !== 4) {
+        return { error: 'Choose exactly four different players from the queue' };
+      }
+      if (requestedIds.some((id) => !available.some((player) => player.id === id))) {
+        return { error: 'Every selected player must still be waiting and not on a break' };
+      }
+      selected = requestedIds.map((id) => available.find((player) => player.id === id)!);
+    } else {
+      if (available.length < 4) return { error: 'At least four available players are needed' };
+      selected = available.slice(0, 4);
+    }
+
+    const court = buildCourtForFormat(
+      'OPEN_DOUBLES',
+      selected.filter((player) => player.gender === 'MALE'),
+      selected.filter((player) => player.gender === 'FEMALE'),
+    );
+    const teamAIds = new Set(court.teamA.map((player) => player.id));
+    for (const player of court.players) {
+      const team = teamAIds.has(player.id) ? 'A' : 'B';
+      await tx`insert into venue_round_players (round_id, court_number, format, team, player_id)
+        values (${round.round_id}::uuid, ${courtNumber}, 'OPEN_DOUBLES', ${team}, ${player.id}::uuid)`;
+    }
+    await tx`update players set rounds_waiting = 0 where id = any(${court.players.map((player) => player.id)}::uuid[])`;
+    return { roundId: String(round.round_id), roundNumber: Number(round.round_number) };
+  });
+
+  if ('error' in result) { sendError(res, 400, result.error); return; }
+  await Promise.all([syncNightGameCounts(sessionId, nightId), syncPairCounts(nightId)]);
+  const [allocation, freshChecked] = await Promise.all([
+    latestRound(sessionId, nightId),
+    loadCheckedInPlayers(sessionId, nightId),
+  ]);
+  const assigned = new Set(allocation.courts.flatMap((court) => court.players.map((player) => player.id)));
+  sendJson(res, 200, serializeAllocation({
+    ...allocation,
+    waiting: freshChecked.filter((player) => !assigned.has(player.id)).sort(comparePriority),
+  }));
+}
+
 async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Promise<void> {
   const sql = db();
   const body = await readJson(req);
   const sessionId: string | null = body?.sessionId ?? null;
   const roundNumber = Number(body?.roundNumber ?? 0);
   const separate = body?.separateDivisions === true;
-  const fillSpareCourtWithOpenDoubles = body?.fillSpareCourtWithOpenDoubles === true;
   const formats = (Array.isArray(body?.courtFormats) ? body.courtFormats : [])
     .map((f: unknown): GameFormat | null => {
       if (f === 'MENS_DOUBLES' || f === 'WOMENS_DOUBLES' || f === 'MIXED_DOUBLES') return f;
@@ -759,7 +849,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
     }
     allocation = manual;
   } else {
-    allocation = generateRound(next, players, formats, separate, maxCourts, fillSpareCourtWithOpenDoubles);
+    allocation = generateRound(next, players, formats, separate, maxCourts);
   }
   if (!sessionId || !nightId) {
     sendJson(res, 200, serializeAllocation(allocation));

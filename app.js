@@ -97,6 +97,8 @@ let latestRoundRequest = 0;
 let swapOutPlayerId = null;
 let selectedQueuePlayerId = null;
 let selectedCourtPlayerId = null;
+let spareCourtSelectionNumber = null;
+let selectedSpareCourtPlayerIds = new Set();
 let manualMode = false;
 let manualCandidates = [];
 let manualCourts = [];
@@ -1191,14 +1193,34 @@ function renderCourts() {
     renderManualCourts();
     return;
   }
+  const session = clubSessions.find(item => item.id === selectedSession());
+  const occupiedCourts = new Set(rounds.map(round => round.court));
+  const spareCourtNumbers = session && Number(document.querySelector('#round-number').textContent) > 0
+    ? Array.from({ length: session.courts }, (_, index) => index + 1).filter(court => !occupiedCourts.has(court))
+    : [];
   document.querySelector('#courts').innerHTML = rounds.map(({ court, format, color, players, teamA, teamB }) => `
     <article class="court" style="--court-color:${color}">
       <div class="court-number"><strong>COURT ${court}</strong><span>4 / 4</span></div>
          <ul>${players.map(player => `<li class="court-player-target ${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''} ${selectedQueuePlayerId || selectedCourtPlayerId ? 'swap-ready' : ''} ${selectedCourtPlayerId === player.id ? 'is-selected' : ''}" data-swap-out="${player.id}" draggable="true" tabindex="0" aria-label="Court player ${escapeHtml(player.name)}; select to swap with another court or waiting player"><span title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-menu="${player.id}" draggable="false" aria-label="More swap options for ${escapeHtml(player.name)}">Swap</button></li>`).join('')}</ul>
       <p class="format">${format}</p>
+    </article>`).join('') + spareCourtNumbers.map(court => `
+    <article class="court spare-court" style="--court-color:#65736b">
+      <div class="court-number"><strong>COURT ${court}</strong><span>0 / 4</span></div>
+      <ul>${Array.from({ length: 4 }, () => '<li class="spare-empty-slot">Empty place</li>').join('')}</ul>
+      <p class="format">Open doubles · spare court</p>
+      <div class="spare-court-actions">
+        <button type="button" class="primary-button" data-spare-autofill="${court}" ${waiting.filter(player => !player.sittingOut).length < 4 ? 'disabled' : ''}>Autofill from queue</button>
+        <button type="button" class="secondary-button" data-spare-choose="${court}" ${waiting.filter(player => !player.sittingOut).length < 4 ? 'disabled' : ''}>Choose from queue</button>
+      </div>
     </article>`).join('');
   document.querySelector('#playing-count').textContent = String(rounds.length * 4);
   document.querySelector('#courts-count').textContent = String(rounds.length);
+  document.querySelectorAll('[data-spare-autofill]').forEach(button => button.addEventListener('click', () => {
+    addPlayersToSpareCourt(Number(button.dataset.spareAutofill));
+  }));
+  document.querySelectorAll('[data-spare-choose]').forEach(button => button.addEventListener('click', () => {
+    openSpareCourtQueue(Number(button.dataset.spareChoose));
+  }));
   document.querySelectorAll('[data-swap-out]').forEach(target => {
     target.addEventListener('click', event => {
       if (event.target.closest('[data-swap-menu]')) return;
@@ -1242,6 +1264,61 @@ function renderCourts() {
     });
   });
   document.querySelectorAll('[data-swap-menu]').forEach(button => button.addEventListener('click', () => openSwapModal(button.dataset.swapMenu)));
+}
+
+function openSpareCourtQueue(courtNumber) {
+  spareCourtSelectionNumber = courtNumber;
+  selectedSpareCourtPlayerIds = new Set();
+  document.querySelector('#spare-court-title').textContent = `Choose four players for Court ${courtNumber}`;
+  document.querySelector('#spare-court-selection-count').textContent = '0 of 4 selected';
+  renderSpareCourtQueue();
+  document.querySelector('#spare-court-modal').classList.remove('hidden');
+}
+
+function renderSpareCourtQueue() {
+  const list = document.querySelector('#spare-court-queue');
+  const eligible = waiting.filter(player => !player.sittingOut);
+  list.innerHTML = eligible.map(player => `
+    <li><label class="spare-queue-option"><input type="checkbox" data-spare-player="${player.id}" ${selectedSpareCourtPlayerIds.has(player.id) ? 'checked' : ''}>
+      <span>${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small></label></li>`).join('');
+  list.querySelectorAll('[data-spare-player]').forEach(input => input.addEventListener('change', () => {
+    if (input.checked && selectedSpareCourtPlayerIds.size >= 4) {
+      input.checked = false;
+      return;
+    }
+    if (input.checked) selectedSpareCourtPlayerIds.add(input.dataset.sparePlayer);
+    else selectedSpareCourtPlayerIds.delete(input.dataset.sparePlayer);
+    document.querySelector('#spare-court-selection-count').textContent = `${selectedSpareCourtPlayerIds.size} of 4 selected`;
+    document.querySelector('#spare-court-save').disabled = selectedSpareCourtPlayerIds.size !== 4;
+  }));
+  document.querySelector('#spare-court-save').disabled = true;
+}
+
+function closeSpareCourtQueue() {
+  spareCourtSelectionNumber = null;
+  selectedSpareCourtPlayerIds = new Set();
+  document.querySelector('#spare-court-modal').classList.add('hidden');
+}
+
+async function addPlayersToSpareCourt(courtNumber, playerIds = null) {
+  const response = await fetch(`${apiBaseUrl}/sessions/${selectedSession()}/open-doubles-spare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ courtNumber, playerIds })
+  });
+  if (!response.ok) {
+    window.alert(await readErrorMessage(response));
+    await initializeLatestRound().catch(() => {});
+    return;
+  }
+  closeSpareCourtQueue();
+  applyAllocation(await response.json());
+  await initializeRoster();
+}
+
+async function saveSpareCourtSelection() {
+  if (spareCourtSelectionNumber === null || selectedSpareCourtPlayerIds.size !== 4) return;
+  await addPlayersToSpareCourt(spareCourtSelectionNumber, [...selectedSpareCourtPlayerIds]);
 }
 
 function renderWaiting() {
@@ -1697,8 +1774,7 @@ async function generateNextRound() {
         roundNumber: round,
         sessionId: selectedSession(),
         players: [],
-        separateDivisions: document.querySelector('#separate-divisions').checked,
-        fillSpareCourtWithOpenDoubles: document.querySelector('#open-doubles-spare-court').checked
+        separateDivisions: document.querySelector('#separate-divisions').checked
         
         
       })
@@ -1858,6 +1934,11 @@ document.querySelector('#swap-modal').addEventListener('click', event => {
 document.querySelector('#manual-fill-cancel').addEventListener('click', closeManualFillModal);
 document.querySelector('#manual-fill-modal').addEventListener('click', event => {
   if (event.target.id === 'manual-fill-modal') closeManualFillModal();
+});
+document.querySelector('#spare-court-cancel').addEventListener('click', closeSpareCourtQueue);
+document.querySelector('#spare-court-save').addEventListener('click', saveSpareCourtSelection);
+document.querySelector('#spare-court-modal').addEventListener('click', event => {
+  if (event.target.id === 'spare-court-modal') closeSpareCourtQueue();
 });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && manualFillSlot) closeManualFillModal();

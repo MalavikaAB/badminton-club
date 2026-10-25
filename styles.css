@@ -24,6 +24,15 @@
 .modal-card ol { list-style:none; padding:18px 0; margin:0; max-height:52vh; overflow-y:auto; }
 .modal-card li button { width:100%; text-align:left; border:1px solid var(--line); background:var(--paper); padding:12px 14px; margin-bottom:8px; cursor:pointer; font:600 16px 'Space Grotesk'; }
 .modal-card li button small { display:block; color:var(--muted); font:11px 'DM Mono'; margin-top:4px; }
+.spare-court { border-style:dashed; background:#fbfcf8; }
+.spare-empty-slot { color:var(--muted); border:1px dashed var(--line); border-radius:7px; padding:8px 10px; margin-bottom:6px; font-size:13px !important; }
+.spare-court-actions,.spare-modal-actions { display:flex; gap:10px; margin-top:14px; }
+.spare-court-actions button,.spare-modal-actions button { width:auto; flex:1; text-align:center; padding:10px 12px; font-size:13px; }
+.spare-queue-option { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; width:100%; align-items:center; border:1px solid var(--line); padding:10px 12px; margin-bottom:8px; cursor:pointer; }
+.spare-queue-option input { grid-row:span 2; }
+.spare-queue-option small { color:var(--muted); font:11px 'DM Mono'; }
+.spare-selection-count { color:var(--green); font:12px 'DM Mono'; }
+.spare-court-queue { list-style:none; padding:12px 0; margin:0; max-height:52vh; overflow-y:auto; }
 .manual-mode-button { width:100%; margin-top:12px; }
 .manual-autofill { margin-left:8px; padding:7px 12px; border:1px solid var(--line); border-radius:5px; background:var(--panel); color:var(--ink); font:500 11px 'DM Mono',monospace; cursor:pointer; white-space:nowrap; }
 .manual-autofill:disabled { opacity:.55; cursor:not-allowed; }

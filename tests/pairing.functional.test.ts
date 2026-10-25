@@ -4,7 +4,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { bestSplit, courtCost, relationshipRepeatPenalty } from '../api/_lib/pairing2.js';
+import { bestSplit, buildCourt as buildCourtForFormat, courtCost, relationshipRepeatPenalty } from '../api/_lib/pairing2.js';
 import { comparePriority, generateRound } from '../api/_lib/scheduler.js';
 import { qualityReport, summarisePairings } from '../api/_lib/pairingQuality.js';
 import { makePlayer, type Player } from '../api/_lib/types.js';
@@ -398,7 +398,7 @@ test('separate divisions fill an available court with players left across divisi
   assert.equal(allocation.waiting.length, 2);
 });
 
-test('open-doubles option uses a spare court for an otherwise illegal leftover group', () => {
+test('open doubles can fill a spare court with an otherwise illegal leftover group', () => {
   const players = [
     ...Array.from({ length: 4 }, (_, index) =>
       makePlayer(`strict-${index}`, `Strict ${index}`, 'MALE', 'A',
@@ -416,13 +416,16 @@ test('open-doubles option uses a spare court for an otherwise illegal leftover g
   assert.equal(standardAllocation.courts.length, 1);
   assert.equal(standardAllocation.waiting.length, 4);
 
-  const openAllocation = generateRound(1, players, null, true, 2, true);
-  assert.equal(openAllocation.courts.length, 2);
-  assert.equal(openAllocation.courts[1].format, 'OPEN_DOUBLES');
-  assert.equal(openAllocation.courts[1].players.length, 4);
-  assert.equal(openAllocation.courts[1].teamA.length, 2);
-  assert.equal(openAllocation.courts[1].teamB.length, 2);
-  assert.equal(openAllocation.waiting.length, 0);
+  const leftovers = standardAllocation.waiting;
+  const openCourt = buildCourtForFormat(
+    'OPEN_DOUBLES',
+    leftovers.filter((player) => player.gender === 'MALE'),
+    leftovers.filter((player) => player.gender === 'FEMALE'),
+  );
+  assert.equal(openCourt.players.length, 4);
+  assert.equal(openCourt.format, 'OPEN_DOUBLES');
+  assert.equal(openCourt.teamA.length, 2);
+  assert.equal(openCourt.teamB.length, 2);
 });
 
 test('separate-division spare court rotates equally ranked cross-division players', () => {
