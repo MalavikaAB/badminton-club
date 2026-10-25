@@ -160,10 +160,13 @@
         <label>Gender <select id="player-gender"><option value="MALE">Male</option><option value="FEMALE">Female</option></select></label>
         <label>Div <select id="player-division"></select></label>
         <label class="beginner-flag"><input id="player-beginner" type="checkbox"><span>Beginner (Div 10)</span></label>
-        <label>Preferred partner
-          <select multiple id="player-partner-preferences"></select>
-          <small class="muted">Choose a preferred partner (optional).</small>
-        </label>
+        <div class="partner-picker-field">
+          <span class="field-label">Preferred partners</span>
+          <details class="partner-picker">
+            <summary id="partner-picker-summary">Choose partners (optional)</summary>
+            <div id="player-partner-preferences" class="partner-picker-options"></div>
+          </details>
+        </div>
         <button class="primary-button" type="submit" id="player-submit">Add player <span>+</span></button>
         <button type="button" class="secondary-button" id="player-edit-cancel" hidden>Cancel</button>
       </form>

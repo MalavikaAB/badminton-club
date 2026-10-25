@@ -237,7 +237,7 @@ test('preferred partners are favoured when pairings are otherwise equal', () => 
       0,
     ),
   );
-  players[0].preferredPartnerIds = [players[1].id];
+  players[0].preferredPartnerIds = [players[1].id, players[2].id];
 
   const split = bestSplit(players, 'MENS_DOUBLES');
   const partneredPairs = [
@@ -245,7 +245,11 @@ test('preferred partners are favoured when pairings are otherwise equal', () => 
     [split.teamB[0].id, split.teamB[1].id].sort().join(),
   ];
 
-  assert(partneredPairs.includes(['a', 'b'].join()));
+  assert(
+    partneredPairs.some((pair) =>
+      [players[1].id, players[2].id].some((preferredId) => pair === [players[0].id, preferredId].sort().join()),
+    ),
+  );
 });
 
 test('preferred partners do not override avoiding a repeated partnership', () => {

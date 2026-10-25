@@ -488,14 +488,11 @@ function beginEditingPlayer(playerId) {
   document.querySelector('#player-beginner').checked = Boolean(player.beginner);
   updateBeginnerControl();
   renderPartnerOptions(playerId);
-  const prefSelect = document.querySelector('#player-partner-preferences');
-  // Set all selected preferred partner IDs
   const selectedIds = player.preferredPartnerIds || [];
-  selectedIds.forEach((id) => {
-    const option = Array.from(prefSelect.options).find(opt => opt.value === id);
-    if (option) option.selected = true;
+  document.querySelectorAll('#player-partner-preferences input[type="checkbox"]').forEach((input) => {
+    input.checked = selectedIds.includes(input.value);
   });
-  prefSelect.value = selectedIds.length > 0 ? selectedIds : '';
+  updatePartnerPickerSummary();
   const submit = document.querySelector('#player-submit');
   submit.textContent = 'Save changes';
   submit.disabled = false;
@@ -523,12 +520,22 @@ function updateBeginnerControl() {
 
 /** Fill the preferred-partners multi-select in the Add/Edit player form. */
 function renderPartnerOptions(excludeId) {
-  const select = document.querySelector('#player-partner-preferences');
-  if (!select) return;
-  select.innerHTML = roster
+  const options = document.querySelector('#player-partner-preferences');
+  if (!options) return;
+  options.innerHTML = roster
     .filter((player) => player.id !== excludeId)
-    .map((player) => `<option value="${player.id}">${escapeHtml(player.name)}</option>`)
+    .map((player) => `<label class="partner-picker-option"><input type="checkbox" value="${escapeHtml(player.id)}"><span>${escapeHtml(player.name)}</span></label>`)
     .join('');
+  options.querySelectorAll('input').forEach((input) => input.addEventListener('change', updatePartnerPickerSummary));
+  updatePartnerPickerSummary();
+}
+
+function updatePartnerPickerSummary() {
+  const summary = document.querySelector('#partner-picker-summary');
+  const selectedNames = Array.from(document.querySelectorAll('#player-partner-preferences input:checked'))
+    .map((input) => roster.find((player) => player.id === input.value)?.name)
+    .filter(Boolean);
+  if (summary) summary.textContent = selectedNames.length ? selectedNames.join(', ') : 'Choose partners (optional)';
 }
 
 /** Initials for a player's avatar (first letters of first and last name). */
@@ -540,19 +547,6 @@ function playerInitials(name) {
     .slice(0, 2)
     .join('')
     .toUpperCase() || '?';
-}
-
-/** <option> elements for the preferred-partner dropdown (everyone else in roster). */
-function preferenceOptionsHtml(player) {
-  return roster
-    .filter((p) => p.id !== player.id)
-    .map(
-      (p) =>
-        `<option value="${p.id}"${player.preferredPartnerIds?.includes(p.id) ? ' selected' : ''}>${escapeHtml(
-          p.name,
-        )}</option>`,
-    )
-    .join('');
 }
 
 /** Names of a player's current preferred partners. */
@@ -578,15 +572,8 @@ function renderPlayers() {
           <div class="directory-sub">
             ${player.gender === 'MALE' ? 'Male' : 'Female'} · Div ${player.division}${
               player.beginner ? ' · <span class="beginner-badge">Beginner</span>' : ''
-            }
+            }${partnerNames.length > 0 ? ` · Preferred: <span class="directory-partner">${partnerNames.join(', ')}</span>` : ''}
           </div>
-          ${partnerNames.length > 0 ? `<div class="directory-partner">Preferred partner(s): ${partnerNames.join(', ')}</div>` : ''}
-        </div>
-        <div class="directory-pref">
-          <select class="pref-select" data-pref-id="${player.id}">
-            <option value="">None</option>
-            ${preferenceOptionsHtml(player)}
-          </select>
         </div>
         <span class="row-actions"><button type="button" class="edit-button" data-edit-id="${player.id}" title="Edit ${escapeHtml(
           player.name,
@@ -610,31 +597,6 @@ function renderPlayers() {
       roster = roster.filter((player) => player.id !== button.dataset.removeId);
       renderPlayers();
       renderCheckins();
-    }),
-  );
-  document.querySelectorAll('.pref-select').forEach((select) =>
-    select.addEventListener('change', async (event) => {
-      const playerId = event.target.dataset.prefId;
-      const prefSelect = event.target;
-      const partnerIds = Array.from(prefSelect.selectedOptions).map(option => option.value);
-      const partnerPreferences = partnerIds.length ? partnerIds : [];
-      const response = await fetch(`${apiBaseUrl}/players/${playerId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partnerPreferences }),
-      });
-      if (!response.ok) {
-        const error = await readErrorMessage(response);
-        window.alert('Could not save preferred partner: ' + error);
-        event.target.value = roster.find((p) => p.id === playerId)?.preferredPartnerIds?.[0] ?? '';
-        return;
-      }
-      const updated = await response.json();
-      const index = roster.findIndex((player) => player.id === playerId);
-      if (index >= 0) {
-        roster[index] = updated;
-        renderPlayers();
-      }
     }),
   );
 }
@@ -1967,8 +1929,8 @@ document.querySelector('#venue-form').addEventListener('submit', async event => 
 });
 document.querySelector('#player-form').addEventListener('submit', async event => {
   event.preventDefault();
-  const prefSelect = document.querySelector('#player-partner-preferences');
-  const partnerPreferences = prefSelect.value ? [prefSelect.value] : [];
+  const partnerPreferences = Array.from(document.querySelectorAll('#player-partner-preferences input:checked'))
+    .map((input) => input.value);
   const payload = {
     name: document.querySelector('#player-name').value.trim(),
     gender: document.querySelector('#player-gender').value,
