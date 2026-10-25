@@ -66,7 +66,7 @@ export function generateRound(
           Math.floor(active.length / 4),
         );
 
-  const ordered = [...active].sort(comparePriority);
+  const ordered = rotatePriorityTies(active, roundNumber);
   const courtCount = Math.min(
     requestedCourtCount,
     legalCourtCapacity(active),
@@ -772,20 +772,18 @@ export function comparePriority(
   a: Player,
   b: Player,
 ): number {
+  const priorityDifference = comparePriorityCore(a, b);
+  if (priorityDifference !== 0) return priorityDifference;
+
+  if (a.checkedInAt !== b.checkedInAt) {
+    return a.checkedInAt < b.checkedInAt ? -1 : 1;
+  }
+  return a.name.localeCompare(b.name);
+}
+
+function comparePriorityCore(a: Player, b: Player): number {
   if ((a.roundsWaiting > 0) !== (b.roundsWaiting > 0)) {
     return a.roundsWaiting > 0 ? -1 : 1;
-  }
-
-  // Give players from the previous open court first consideration for a
-  // standard court. Once they play a standard round, this preference clears.
-  const aRecentlyPlayedOpen =
-    (a.lastOpenDoublesRound ?? 0) > 0 &&
-    a.lastOpenDoublesRound === a.lastPlayedRound;
-  const bRecentlyPlayedOpen =
-    (b.lastOpenDoublesRound ?? 0) > 0 &&
-    b.lastOpenDoublesRound === b.lastPlayedRound;
-  if (aRecentlyPlayedOpen !== bRecentlyPlayedOpen) {
-    return aRecentlyPlayedOpen ? -1 : 1;
   }
 
   if (Boolean(a.priorityGame) !== Boolean(b.priorityGame)) {
@@ -812,19 +810,22 @@ export function comparePriority(
     return (a.lastPlayedRound ?? 0) - (b.lastPlayedRound ?? 0);
   }
 
-  if (
-    a.checkedInAt !==
-    b.checkedInAt
-  ) {
-    return a.checkedInAt <
-      b.checkedInAt
-      ? -1
-      : 1;
-  }
+  return 0;
+}
 
-  return a.name.localeCompare(
-    b.name,
-  );
+/** Rotate otherwise-tied players so stable names/check-in order don't pin the same four to open courts. */
+function rotatePriorityTies(players: Player[], roundNumber: number): Player[] {
+  if (players.length < 2) return [...players];
+  const baseline = [...players].sort(comparePriority);
+  const baseRank = new Map(baseline.map((player, index) => [player.id, index]));
+  const offset = roundNumber % players.length;
+  return [...players].sort((a, b) => {
+    const priority = comparePriorityCore(a, b);
+    if (priority !== 0) return priority;
+    const aRank = ((baseRank.get(a.id) ?? 0) - offset + players.length) % players.length;
+    const bRank = ((baseRank.get(b.id) ?? 0) - offset + players.length) % players.length;
+    return aRank - bRank || comparePriority(a, b);
+  });
 }
 
 function gamesPerRoundPresent(player: Player): number {
