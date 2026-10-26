@@ -623,6 +623,37 @@ test('a consecutive sit-out is unavoidable when every player sat out last round'
   );
 });
 
+test('round-robin tie-break spreads sit-outs across equally ranked players', () => {
+  const players = Array.from({ length: 6 }, (_, index) =>
+    makePlayer(`tie-${index}`, `Tie ${index}`, 'MALE', '10',
+      '2026-01-01T00:00:00.000Z', 0, 0),
+  );
+  const sitRounds = new Map(players.map((player) => [player.id, [] as number[]]));
+
+  for (let round = 1; round <= 12; round++) {
+    const allocation = generateRound(round, players, ['MENS_DOUBLES'], false, 1);
+    const assignedIds = new Set(allocation.courts.flatMap((court) =>
+      court.players.map((player) => player.id),
+    ));
+
+    for (const player of players) {
+      player.roundsPresent = (player.roundsPresent ?? 0) + 1;
+      if (assignedIds.has(player.id)) {
+        player.gamesPlayed++;
+        player.roundsWaiting = 0;
+        player.lastPlayedRound = round;
+      } else {
+        sitRounds.get(player.id)!.push(round);
+        player.roundsWaiting++;
+      }
+    }
+  }
+
+  const patterns = [...sitRounds.values()].map((rounds) => rounds.join(','));
+  assert.equal(new Set(patterns).size, players.length,
+    `equally ranked players should not share identical sit-out sequences: ${patterns.join(' | ')}`);
+});
+
 test('new arrivals keep priority until they play and sit-outs appear only once', () => {
   const players = Array.from({ length: 10 }, (_, index) => {
     const player = makePlayer(

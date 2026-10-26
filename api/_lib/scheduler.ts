@@ -73,7 +73,14 @@ export function generateRound(
           Math.floor(active.length / 4),
         );
 
-  const ordered = [...active].sort(comparePriority);
+  // Rotate only the final name tie-break each round. All meaningful queue
+  // priorities remain ahead of this, but equally ranked players don't keep
+  // receiving the same sit-out rounds simply because of their names.
+  const ordered = rotateEqualPriorityPlayers(
+    active,
+    roundNumber,
+    comparePriorityBeforeName,
+  );
   const courtCount = Math.min(
     requestedCourtCount,
     legalCourtCapacity(active),
@@ -117,6 +124,7 @@ export function generateRound(
     candidates,
     requiredPlayers,
     optimizationCandidates,
+    comparePriorityBeforeName,
   );
 
   /**
@@ -598,12 +606,16 @@ function generateSeparatedRound(
         group.pool.length,
         requiredPlayers + courtCountForDivision * EXTRA_CANDIDATES_PER_COURT,
       );
-      const strictCandidates = [...group.pool].sort(compareStrictDivisionPriority);
+      const strictCandidates = rotateEqualPriorityPlayers(
+        group.pool,
+        roundNumber,
+        compareStrictDivisionPriorityBeforeName,
+      );
       const selected = selectBestPlayers(
         strictCandidates,
         requiredPlayers,
         strictCandidates.slice(0, candidateCount),
-        compareStrictDivisionPriority,
+        compareStrictDivisionPriorityBeforeName,
       );
       if (!canFieldCourtCount(selected, courtCountForDivision)) return null;
 
@@ -701,7 +713,9 @@ function rotateEqualPriorityPlayers(
   roundNumber: number,
   compareCandidates: (a: Player, b: Player) => number,
 ): Player[] {
-  const ordered = [...players].sort(compareCandidates);
+  const ordered = [...players].sort((a, b) =>
+    compareCandidates(a, b) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+  );
   const result: Player[] = [];
   for (let start = 0; start < ordered.length;) {
     let end = start + 1;
@@ -745,7 +759,7 @@ function compareSpareCourtPriority(a: Player, b: Player): number {
 }
 
 /** Move recent fallback players back into their regular division courts. */
-function compareStrictDivisionPriority(a: Player, b: Player): number {
+function compareStrictDivisionPriorityBeforeName(a: Player, b: Player): number {
   if ((a.roundsWaiting > 0) !== (b.roundsWaiting > 0)) {
     return a.roundsWaiting > 0 ? -1 : 1;
   }
@@ -758,7 +772,7 @@ function compareStrictDivisionPriority(a: Player, b: Player): number {
   const fallbackRoundDifference =
     (b.lastFallbackCourtRound ?? 0) - (a.lastFallbackCourtRound ?? 0);
   if (fallbackRoundDifference) return fallbackRoundDifference;
-  return comparePriorityBeforeName(a, b) || a.name.localeCompare(b.name);
+  return comparePriorityBeforeName(a, b);
 }
 
 /** Compare all queue-priority fields while excluding the stable name tie-break. */
