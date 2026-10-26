@@ -5,7 +5,7 @@ import { db } from './db.js';
 import { ensureSchema } from './schema.js';
 import { comparePriority, generateRound } from './scheduler.js';
 import { EPOCH, type CourtAssignment, type GameFormat, type Gender, type Player, type RoundAllocation } from './types.js';
-import { buildCourt as buildCourtForFormat, splitLegalForFormat } from './pairing2.js';
+import { buildCourt as buildCourtForFormat, splitLegalForFormat, splitPartialOpenCourt } from './pairing2.js';
 import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions, createSession, updateSession, setSessionActive } from './repo.js';
 import {
   loadCheckedInPlayers,
@@ -753,30 +753,40 @@ async function handleOpenDoublesSpare(req: VercelRequest, res: VercelResponse, s
       );
     let selected: Player[];
     if (requestedIds) {
-      if (requestedIds.length !== 4 || new Set(requestedIds).size !== 4) {
-        return { error: 'Choose exactly four different players from the queue' };
+      if (requestedIds.length < 2 || requestedIds.length > 4 || new Set(requestedIds).size !== requestedIds.length) {
+        return { error: 'Choose between two and four different players from the queue' };
       }
       if (requestedIds.some((id) => !available.some((player) => player.id === id))) {
         return { error: 'Every selected player must still be waiting and not on a break' };
       }
       selected = requestedIds.map((id) => available.find((player) => player.id === id)!);
     } else {
-      if (available.length < 4) return { error: 'At least four available players are needed' };
+      if (available.length < 2) return { error: 'At least two available players are needed' };
       selected = available.slice(0, 4);
     }
 
-    const court = buildCourtForFormat(
-      'OPEN_DOUBLES',
-      selected.filter((player) => player.gender === 'MALE'),
-      selected.filter((player) => player.gender === 'FEMALE'),
-    );
-    const teamAIds = new Set(court.teamA.map((player) => player.id));
-    for (const player of court.players) {
+    let teamA: Player[];
+    let teamB: Player[];
+    if (selected.length === 4) {
+      const fullCourt = buildCourtForFormat(
+        'OPEN_DOUBLES',
+        selected.filter((player) => player.gender === 'MALE'),
+        selected.filter((player) => player.gender === 'FEMALE'),
+      );
+      teamA = fullCourt.teamA;
+      teamB = fullCourt.teamB;
+    } else if (selected.length === 2) {
+      ({ teamA, teamB } = splitPartialOpenCourt(selected));
+    } else {
+      ({ teamA, teamB } = splitPartialOpenCourt(selected));
+    }
+    const teamAIds = new Set(teamA.map((player) => player.id));
+    for (const player of selected) {
       const team = teamAIds.has(player.id) ? 'A' : 'B';
       await tx`insert into venue_round_players (round_id, court_number, format, team, player_id)
         values (${round.round_id}::uuid, ${courtNumber}, 'OPEN_DOUBLES', ${team}, ${player.id}::uuid)`;
     }
-    await tx`update players set rounds_waiting = 0 where id = any(${court.players.map((player) => player.id)}::uuid[])`;
+    await tx`update players set rounds_waiting = 0 where id = any(${selected.map((player) => player.id)}::uuid[])`;
     return { roundId: String(round.round_id), roundNumber: Number(round.round_number) };
   });
 

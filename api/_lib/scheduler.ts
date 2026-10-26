@@ -10,7 +10,7 @@ import {
   buildAllCourts,
 } from './pairing.js';
 
-import { courtCostOf, courtRepeatCountOf, isPreferredPartner } from './pairing2.js';
+import { courtCostOf, courtRepeatCountOf, courtRepeatPenaltyCost, isPreferredPartner } from './pairing2.js';
 
 const DEFAULT_COURTS = 6;
 
@@ -1020,6 +1020,7 @@ function buildBestFormatCourts(
   let best: CourtAssignment[] | null = null;
   let bestRepeatCount = Number.POSITIVE_INFINITY;
   let bestScore = Number.POSITIVE_INFINITY;
+  let bestRepeatPenaltyCost = Number.POSITIVE_INFINITY;
   let bestPreferredPairCount = -1;
   let bestSameGenderCourtCount = -1;
   for (const plan of candidates) {
@@ -1049,18 +1050,24 @@ function buildBestFormatCourts(
         Number(isPreferredPartner(court.teamB[0], court.teamB[1])),
       0,
     );
+    const repeatPenaltyCost = courts.reduce(
+      (sum, court) => sum + courtRepeatPenaltyCost(court),
+      0,
+    );
     const sameGenderCourtCount = counts.mens + counts.womens;
     if (
-      preferredPairCount > bestPreferredPairCount ||
-      (preferredPairCount === bestPreferredPairCount && score < bestScore) ||
-      (preferredPairCount === bestPreferredPairCount && score === bestScore && repeatCount < bestRepeatCount) ||
-      (preferredPairCount === bestPreferredPairCount && score === bestScore &&
+      repeatPenaltyCost < bestRepeatPenaltyCost ||
+      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount > bestPreferredPairCount) ||
+      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount === bestPreferredPairCount && score < bestScore) ||
+      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount === bestPreferredPairCount && score === bestScore && repeatCount < bestRepeatCount) ||
+      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount === bestPreferredPairCount && score === bestScore &&
         repeatCount === bestRepeatCount &&
         sameGenderCourtCount > bestSameGenderCourtCount)
     ) {
       best = courts;
       bestRepeatCount = repeatCount;
       bestScore = score;
+      bestRepeatPenaltyCost = repeatPenaltyCost;
       bestPreferredPairCount = preferredPairCount;
       bestSameGenderCourtCount = sameGenderCourtCount;
     }

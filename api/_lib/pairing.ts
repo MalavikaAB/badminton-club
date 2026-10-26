@@ -8,9 +8,11 @@ import {
   bestSplit,
   buildCourt as buildCourt2,
   courtCostOf,
+  courtRepeatPenaltyCost,
   courtRepeatCountOf,
   isPreferredPartner,
   localSearch,
+  repeatPenaltyCost,
   replacePlayer,
   validForFormat,
 } from './pairing2.js';
@@ -401,6 +403,12 @@ export function balanceDivisionsAcrossCourts(
             const afterCost =
               splitI.cost +
               splitJ.cost;
+            const beforeRepeatPenaltyCost =
+              courtRepeatPenaltyCost(ci) +
+              courtRepeatPenaltyCost(cj);
+            const afterRepeatPenaltyCost =
+              repeatPenaltyCost(splitI.teamA, splitI.teamB) +
+              repeatPenaltyCost(splitJ.teamA, splitJ.teamB);
             const beforeRepeatCount =
               courtRepeatCountOf(ci) +
               courtRepeatCountOf(cj);
@@ -415,6 +423,7 @@ export function balanceDivisionsAcrossCourts(
               preferredPairCount(splitJ.teamA, splitJ.teamB);
 
             if (
+              afterRepeatPenaltyCost > beforeRepeatPenaltyCost ||
               afterPreferredPairCount < beforePreferredPairCount ||
               afterRepeatCount > beforeRepeatCount ||
               (afterRepeatCount === beforeRepeatCount && afterCost > beforeCost)

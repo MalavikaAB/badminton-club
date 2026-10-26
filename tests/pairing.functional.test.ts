@@ -4,7 +4,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { bestSplit, buildCourt as buildCourtForFormat, courtCost, relationshipRepeatPenalty } from '../api/_lib/pairing2.js';
+import { bestSplit, buildCourt as buildCourtForFormat, courtCost, relationshipRepeatPenalty, splitPartialOpenCourt } from '../api/_lib/pairing2.js';
 import { buildAllCourts } from '../api/_lib/pairing.js';
 import { comparePriority, generateRound } from '../api/_lib/scheduler.js';
 import { qualityReport, summarisePairings } from '../api/_lib/pairingQuality.js';
@@ -253,7 +253,7 @@ test('preferred partners are favoured when pairings are otherwise equal', () => 
   );
 });
 
-test('preferred partners are paired even when their partnership has repeated', () => {
+test('a preferred partner does not override a repeated partnership penalty', () => {
   const players = ['a', 'b', 'c', 'd'].map((id, index) =>
     makePlayer(
       id,
@@ -274,10 +274,10 @@ test('preferred partners are paired even when their partnership has repeated', (
     [split.teamB[0].id, split.teamB[1].id].sort().join(),
   ];
 
-  assert(partneredPairs.includes(['a', 'b'].join()));
+  assert(!partneredPairs.includes(['a', 'b'].join()));
 });
 
-test('round allocation pairs preferred partners who are both assigned to play', () => {
+test('round allocation respects partner repeat penalties for preferred pairs', () => {
   const players = ['a', 'b', 'c', 'd'].map((id, index) =>
     makePlayer(
       id,
@@ -299,10 +299,10 @@ test('round allocation pairs preferred partners who are both assigned to play', 
     [court.teamB[0].id, court.teamB[1].id].sort().join(),
   ];
 
-  assert(partneredPairs.includes(['a', 'b'].join()));
+  assert(!partneredPairs.includes(['a', 'b'].join()));
 });
 
-test('preferred partners stay together across generated rounds when both are playing', () => {
+test('preferred partners do not repeat every round when alternatives exist', () => {
   const players = ['a', 'b', 'c', 'd'].map((id, index) =>
     makePlayer(
       id,
@@ -343,10 +343,10 @@ test('preferred partners stay together across generated rounds when both are pla
     }
   }
 
-  assert.equal(together, rounds);
+  assert(together < rounds, 'the partner-repeat penalty should rotate away from the preferred pair');
 });
 
-test('preferred partners are paired even when that creates a repeated opponent matchup', () => {
+test('a preferred pair does not override a repeated opponent penalty', () => {
   const players = ['a', 'b', 'c', 'd'].map((id, index) =>
     makePlayer(
       id,
@@ -368,7 +368,7 @@ test('preferred partners are paired even when that creates a repeated opponent m
     [split.teamB[0].id, split.teamB[1].id].sort().join(),
   ];
 
-  assert(partneredPairs.includes(['a', 'b'].join()));
+  assert(!partneredPairs.includes(['a', 'b'].join()));
 });
 
 test('players with fewer games get priority when wait rounds are equal', () => {
@@ -525,6 +525,26 @@ test('open doubles can fill a spare court with an otherwise illegal leftover gro
   assert.equal(openCourt.format, 'OPEN_DOUBLES');
   assert.equal(openCourt.teamA.length, 2);
   assert.equal(openCourt.teamB.length, 2);
+});
+
+test('a two-player spare court is split into singles sides', () => {
+  const players = ['a', 'b'].map((id, index) =>
+    makePlayer(id, id, 'MALE', '10', new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(), 0, 0),
+  );
+  const { teamA, teamB } = splitPartialOpenCourt(players);
+  assert.equal(teamA.length, 1);
+  assert.equal(teamB.length, 1);
+  assert.notEqual(teamA[0].id, teamB[0].id);
+});
+
+test('a three-player spare court pairs a preferred legal partner when repeat cost ties', () => {
+  const players = ['a', 'b', 'c'].map((id, index) =>
+    makePlayer(id, id, 'MALE', '10', new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(), 0, 0),
+  );
+  players[1].preferredPartnerIds = [players[2].id];
+  const { teamA, teamB } = splitPartialOpenCourt(players);
+  assert.deepEqual(teamA.map((player) => player.id).sort(), ['b', 'c']);
+  assert.deepEqual(teamB.map((player) => player.id), ['a']);
 });
 
 test('separate-division spare court rotates equally ranked cross-division players', () => {

@@ -371,7 +371,9 @@ function applyAllocation(allocation) {
   const roundNumber = allocation?.roundNumber || 0;
   rounds = (allocation?.courts || []).map(({ courtNumber, format, players, teamA, teamB }) => ({
     court: courtNumber,
-    format: formatLabels[format] || format,
+    format: format === 'OPEN_DOUBLES' && players.length < 4
+      ? `Open court · ${players.length === 2 ? 'singles' : '3-player practice'}`
+      : formatLabels[format] || format,
     formatKey: format,
     color: colourForFormat(format),
     players: mapPlayers(players),
@@ -673,7 +675,7 @@ async function loadStatistics() {
         }).join('')}
       </tr>`).join('');
 
-    matrix.innerHTML = `
+    const matrixTable = `
       <div class="statistics-table-scroll" role="region" aria-label="Shared court matrix; scroll horizontally to see all players" tabindex="0">
         <table class="statistics-table">
           <caption class="visually-hidden">Number of shared courts for each player pair, with partner and opponent counts. P means partner and O means opponent. The games column shows total games played.</caption>
@@ -705,13 +707,9 @@ async function loadStatistics() {
         </table>
       </div>`;
 
-            const legend = document.createElement('p');
-            legend.className = 'statistics-legend';
-            legend.innerHTML = '<strong>Sit-out tally per player:</strong> 1 = played, 0 = sat out, x = not checked in yet or already checked out. Shows total times sat out, longest consecutive sit streak, and the round-by-round sequence.';
-            const tallyContainer = document.createElement('div');
-            tallyContainer.innerHTML = tallyTable;
-            matrix.parentNode.appendChild(legend);
-            matrix.parentNode.appendChild(tallyContainer.firstElementChild);
+    matrix.innerHTML = `${matrixTable}
+      <p class="statistics-legend"><strong>Sit-out tally per player:</strong> 1 = played, 0 = sat out, x = not checked in yet or already checked out. Shows total sits, longest consecutive sit streak, and the round-by-round sequence.</p>
+      ${tallyTable}`;
   } catch (loadError) {
     if (requestId !== statisticsRequest) return;
     console.error('Could not load session statistics:', loadError);
@@ -1169,7 +1167,7 @@ function renderCourts() {
     : [];
   document.querySelector('#courts').innerHTML = rounds.map(({ court, format, color, players, teamA, teamB }) => `
     <article class="court" style="--court-color:${color}">
-      <div class="court-number"><strong>COURT ${court}</strong><span>4 / 4</span></div>
+      <div class="court-number"><strong>COURT ${court}</strong><span>${players.length} / 4</span></div>
          <ul>${players.map(player => `<li class="court-player-target ${teamA.includes(player.id) ? 'team-a' : teamB.includes(player.id) ? 'team-b' : ''} ${selectedQueuePlayerId || selectedCourtPlayerId ? 'swap-ready' : ''} ${selectedCourtPlayerId === player.id ? 'is-selected' : ''}" data-swap-out="${player.id}" draggable="true" tabindex="0" aria-label="Court player ${escapeHtml(player.name)}; select to swap with another court or waiting player"><span title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</span><small>Div ${escapeHtml(player.division)} · ${player.gamesPlayed} ${player.gamesPlayed === 1 ? 'game' : 'games'}</small><button type="button" class="inline-action" data-swap-menu="${player.id}" draggable="false" aria-label="More swap options for ${escapeHtml(player.name)}">Swap</button></li>`).join('')}</ul>
       <p class="format">${format}</p>
     </article>`).join('') + spareCourtNumbers.map(court => `
@@ -1178,11 +1176,11 @@ function renderCourts() {
       <ul>${Array.from({ length: 4 }, () => '<li class="spare-empty-slot">Empty place</li>').join('')}</ul>
       <p class="format">Open doubles · spare court</p>
       <div class="spare-court-actions">
-        <button type="button" class="primary-button" data-spare-autofill="${court}" ${waiting.filter(player => !player.sittingOut).length < 4 ? 'disabled' : ''}>Autofill from queue</button>
-        <button type="button" class="secondary-button" data-spare-choose="${court}" ${waiting.filter(player => !player.sittingOut).length < 4 ? 'disabled' : ''}>Choose from queue</button>
+        <button type="button" class="primary-button" data-spare-autofill="${court}" ${waiting.filter(player => !player.sittingOut).length < 2 ? 'disabled' : ''}>Autofill from queue</button>
+        <button type="button" class="secondary-button" data-spare-choose="${court}" ${waiting.filter(player => !player.sittingOut).length < 2 ? 'disabled' : ''}>Choose from queue</button>
       </div>
     </article>`).join('');
-  document.querySelector('#playing-count').textContent = String(rounds.length * 4);
+  document.querySelector('#playing-count').textContent = String(rounds.reduce((total, court) => total + court.players.length, 0));
   document.querySelector('#courts-count').textContent = String(rounds.length);
   document.querySelectorAll('[data-spare-autofill]').forEach(button => button.addEventListener('click', () => {
     addPlayersToSpareCourt(Number(button.dataset.spareAutofill));
@@ -1238,8 +1236,8 @@ function renderCourts() {
 function openSpareCourtQueue(courtNumber) {
   spareCourtSelectionNumber = courtNumber;
   selectedSpareCourtPlayerIds = new Set();
-  document.querySelector('#spare-court-title').textContent = `Choose four players for Court ${courtNumber}`;
-  document.querySelector('#spare-court-selection-count').textContent = '0 of 4 selected';
+  document.querySelector('#spare-court-title').textContent = `Choose 2–4 players for Court ${courtNumber}`;
+  document.querySelector('#spare-court-selection-count').textContent = '0 of 4 selected · minimum 2';
   renderSpareCourtQueue();
   document.querySelector('#spare-court-modal').classList.remove('hidden');
 }
@@ -1257,10 +1255,11 @@ function renderSpareCourtQueue() {
     }
     if (input.checked) selectedSpareCourtPlayerIds.add(input.dataset.sparePlayer);
     else selectedSpareCourtPlayerIds.delete(input.dataset.sparePlayer);
-    document.querySelector('#spare-court-selection-count').textContent = `${selectedSpareCourtPlayerIds.size} of 4 selected`;
-    document.querySelector('#spare-court-save').disabled = selectedSpareCourtPlayerIds.size !== 4;
+    const selectedCount = selectedSpareCourtPlayerIds.size;
+    document.querySelector('#spare-court-selection-count').textContent = `${selectedCount} of 4 selected${selectedCount < 2 ? ' · minimum 2' : ''}`;
+    document.querySelector('#spare-court-save').disabled = selectedCount < 2;
   }));
-  document.querySelector('#spare-court-save').disabled = true;
+  document.querySelector('#spare-court-save').disabled = selectedSpareCourtPlayerIds.size < 2;
 }
 
 function closeSpareCourtQueue() {
@@ -1286,7 +1285,7 @@ async function addPlayersToSpareCourt(courtNumber, playerIds = null) {
 }
 
 async function saveSpareCourtSelection() {
-  if (spareCourtSelectionNumber === null || selectedSpareCourtPlayerIds.size !== 4) return;
+  if (spareCourtSelectionNumber === null || selectedSpareCourtPlayerIds.size < 2 || selectedSpareCourtPlayerIds.size > 4) return;
   await addPlayersToSpareCourt(spareCourtSelectionNumber, [...selectedSpareCourtPlayerIds]);
 }
 
@@ -2038,9 +2037,11 @@ async function loadPlayerAllocation() {
     : 'No courts have been allocated for this session yet.';
   courtsElement.innerHTML = courts.map(court => `
     <article class="court player-court" style="--court-color:${colourForFormat(court.format)}">
-      <div class="court-number"><strong>COURT ${escapeHtml(court.courtNumber)}</strong><span>4 / 4</span></div>
+      <div class="court-number"><strong>COURT ${escapeHtml(court.courtNumber)}</strong><span>${court.players.length} / 4</span></div>
       <ul>${court.players.map(player => `<li class="${player.team === 'A' ? 'team-a' : 'team-b'}">${escapeHtml(player.name)}</li>`).join('')}</ul>
-      <p class="format">${escapeHtml(formatLabels[court.format] || court.format)}</p>
+      <p class="format">${escapeHtml(court.format === 'OPEN_DOUBLES' && court.players.length < 4
+        ? `Open court · ${court.players.length === 2 ? 'singles' : '3-player practice'}`
+        : formatLabels[court.format] || court.format)}</p>
     </article>`).join('');
 }
 

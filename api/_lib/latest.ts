@@ -54,11 +54,20 @@ export async function latestRound(
     teamByCourt.get(cn)!.set(pid, r.team);
   }
   const courts = [...byCourt.entries()]
-    .filter(([, ps]) => ps.length === 4)
+    .filter(([cn, ps]) => ps.length === 4 || (fmtByCourt.get(cn) === 'OPEN_DOUBLES' && ps.length >= 2 && ps.length < 4))
     .map(([cn, ps]) => {
       const teams = teamByCourt.get(cn) ?? new Map();
       const a = ps.filter((p) => teams.get(p.id) === 'A');
       const b = ps.filter((p) => teams.get(p.id) === 'B');
+      if (fmtByCourt.get(cn) === 'OPEN_DOUBLES' && ps.length < 4) {
+        return {
+          courtNumber: cn,
+          format: fmtByCourt.get(cn),
+          players: ps,
+          teamA: a.length > 0 ? a : ps.slice(0, 1),
+          teamB: b.length > 0 ? b : ps.slice(1),
+        };
+      }
       if (a.length === 2 && b.length === 2) {
         return { courtNumber: cn, format: fmtByCourt.get(cn), players: ps, teamA: a, teamB: b };
       }
