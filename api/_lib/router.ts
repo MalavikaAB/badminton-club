@@ -854,6 +854,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   let next = roundNumber;
   let players: Player[] = [];
   let maxCourts: number | undefined;
+  let strictSeparateDivisions = false;
   if (!sessionId) {
     players = (Array.isArray(body?.players) ? body.players : []).map((p: any) => ({
       id: String(p.id ?? randomUUID()), name: String(p.name ?? ''),
@@ -871,12 +872,17 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   } else if (nightId) {
     const [roundState, checkedPlayers] = await Promise.all([
       sql`select coalesce((select max(round_number) + 1 from venue_rounds where night_id = ${nightId} and valid = true), 1) as next_round,
+        exists (select 1 from venue_rounds invalid_round
+          where invalid_round.night_id = ${nightId} and invalid_round.valid = false
+            and invalid_round.round_number = coalesce((select max(round_number) from venue_rounds
+              where night_id = ${nightId} and valid = true), 0) + 1) as replacing_invalid_round,
         (select courts from venue_sessions where id = ${sessionId}) as courts`,
       loadCheckedInPlayers(sessionId, nightId),
     ]);
     const state = (roundState as any[])[0];
     next = Number(state?.next_round ?? 1);
     maxCourts = Number(state?.courts ?? 6) || 6;
+    strictSeparateDivisions = separate && state?.replacing_invalid_round === true;
     players = checkedPlayers;
   }
   let allocation: RoundAllocation;
@@ -892,7 +898,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
     }
     allocation = manual;
   } else {
-    allocation = generateRound(next, players, formats, separate, maxCourts);
+    allocation = generateRound(next, players, formats, separate, maxCourts, strictSeparateDivisions);
   }
   if (!sessionId || !nightId) {
     sendJson(res, 200, serializeAllocation(allocation));

@@ -49,6 +49,7 @@ export function generateRound(
   courtFormats?: GameFormat[] | null,
   separateDivisions = false,
   maxCourts?: number,
+  strictSeparateDivisions = false,
 ): RoundAllocation {
   const resting = checkedInPlayers.filter((p) => p.sittingOut);
   const active = checkedInPlayers.filter((p) => !p.sittingOut);
@@ -100,6 +101,7 @@ export function generateRound(
       ordered,
       resting,
       courtCount,
+      !strictSeparateDivisions,
     );
   }
 
@@ -561,6 +563,7 @@ function generateSeparatedRound(
   ordered: Player[],
   resting: Player[],
   courtCount: number,
+  allowCrossDivisionSpareCourt = true,
 ): RoundAllocation {
   const byDiv = new Map<string, Player[]>();
   for (const player of ordered) {
@@ -667,7 +670,7 @@ function generateSeparatedRound(
   );
   const remaining = ordered.filter((player) => !strictPlayerIds.has(player.id));
   const extraCourtsAvailable = Math.min(
-    courtCount - strictCourts.length,
+    allowCrossDivisionSpareCourt ? courtCount - strictCourts.length : 0,
     legalCourtCapacity(remaining),
   );
   const extraCourts: CourtAssignment[] = [];
