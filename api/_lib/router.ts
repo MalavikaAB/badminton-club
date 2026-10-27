@@ -196,6 +196,10 @@ export async function routeClubNight(req: VercelRequest, res: VercelResponse): P
         await handleLatestRound(res, sessionId);
         return;
       }
+      if (method === 'POST' && root[2] === 'rounds' && root[3] === 'invalidate' && root.length === 4) {
+        await handleInvalidateLatestRound(res, sessionId);
+        return;
+      }
       if (method === 'GET' && root[2] === 'player-allocation' && root.length === 3) {
         await handlePlayerAllocation(res, sessionId);
         return;
@@ -445,6 +449,34 @@ async function handleLatestRound(res: VercelResponse, sessionId: string): Promis
   }));
 }
 
+async function handleInvalidateLatestRound(res: VercelResponse, sessionId: string): Promise<void> {
+  const sql = db();
+  await resetStaleNight(sessionId);
+  const nightId = await openNightId(sessionId);
+  if (!nightId) {
+    sendError(res, 404, 'There is no open club night');
+    return;
+  }
+  const latest = await sql`select id, round_number from venue_rounds
+    where night_id = ${nightId} and valid = true order by round_number desc limit 1`;
+  if (!(latest as any[]).length) {
+    sendError(res, 409, 'There is no round to invalidate');
+    return;
+  }
+  const roundId = String((latest as any[])[0].id);
+  await sql`update venue_rounds set valid = false where id = ${roundId}::uuid`;
+  await sql`update players p set rounds_waiting = s.rounds_waiting
+    from venue_round_player_states s where s.round_id = ${roundId}::uuid and s.player_id = p.id`;
+  await sql`update venue_check_ins ci set
+      priority_game = s.priority_game,
+      sit_out_rounds = s.sit_out_rounds
+    from venue_round_player_states s
+    where s.round_id = ${roundId}::uuid and s.player_id = ci.player_id
+      and ci.session_id = ${sessionId}`;
+  await Promise.all([syncNightGameCounts(sessionId, nightId), syncPairCounts(nightId)]);
+  await handleLatestRound(res, sessionId);
+}
+
 async function handlePlayerAllocation(res: VercelResponse, sessionId: string): Promise<void> {
   const activeSession = await db()`select 1 from venue_sessions where id = ${sessionId} and active = true`;
   if (!(activeSession as any[]).length) {
@@ -484,19 +516,19 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
   }
 
   const [roundRows, playerRows, relationshipRows, roundParticipationRows, checkInRows] = await Promise.all([
-    sql`select count(*)::int as rounds_played from venue_rounds where night_id = ${nightId}`,
+    sql`select count(*)::int as rounds_played from venue_rounds where night_id = ${nightId} and valid = true`,
     sql`select p.id, p.name, p.gender, p.division, count(rp.player_id)::int as games_played
       from players p
       left join venue_round_players rp
         on rp.player_id = p.id
         and rp.court_number is not null
-        and rp.round_id in (select id from venue_rounds where night_id = ${nightId})
+        and rp.round_id in (select id from venue_rounds where night_id = ${nightId} and valid = true)
       where p.id in (
         select player_id from venue_check_ins where session_id = ${sessionId}
       ) or p.id in (
         select rp.player_id from venue_round_players rp
         join venue_rounds r on r.id = rp.round_id
-        where r.night_id = ${nightId} and rp.court_number is not null
+        where r.night_id = ${nightId} and r.valid = true and rp.court_number is not null
       )
       group by p.id, p.name, p.gender, p.division
       order by p.name, p.id`,
@@ -510,6 +542,7 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
         and b.player_id <> a.player_id
       join venue_rounds r on r.id = a.round_id
       where r.night_id = ${nightId}
+        and r.valid = true
         and a.court_number is not null
         and a.team in ('A', 'B')
         and b.team in ('A', 'B')
@@ -518,7 +551,7 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
       from venue_rounds r
       join venue_nights n on n.id = r.night_id
       left join venue_round_players rp on rp.round_id = r.id
-      where n.session_id = ${sessionId} and n.status = 'OPEN'
+      where n.session_id = ${sessionId} and n.status = 'OPEN' and r.valid = true
       order by r.round_number`,
     sql`select player_id, checked_in_at, checked_out_at from venue_check_ins where session_id = ${sessionId}`,
   ]);
@@ -640,7 +673,7 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
   const context = await sql`with latest as (
       select r.id, r.round_number, n.id as night_id
       from venue_rounds r join venue_nights n on n.id = r.night_id
-      where n.session_id = ${sessionId} and n.status = 'OPEN'
+      where n.session_id = ${sessionId} and n.status = 'OPEN' and r.valid = true
       order by r.round_number desc limit 1
     )
     select latest.id as round_id, latest.round_number, latest.night_id,
@@ -690,7 +723,7 @@ async function handleSwap(req: VercelRequest, res: VercelResponse, sessionId: st
         rounds_waiting = case when id = ${outId} then rounds_waiting + 1 else 0 end,
         games_played = (select count(*) from venue_round_players rp
           join venue_rounds r on r.id = rp.round_id
-          where rp.player_id = players.id and r.night_id = ${nightId})
+          where rp.player_id = players.id and r.night_id = ${nightId} and r.valid = true)
         where id in (${outId}, ${inId})`;
     });
   }
@@ -723,7 +756,7 @@ async function handleOpenDoublesSpare(req: VercelRequest, res: VercelResponse, s
       from venue_rounds r
       join venue_nights n on n.id = r.night_id
       join venue_sessions s on s.id = n.session_id
-      where n.session_id = ${sessionId} and n.status = 'OPEN'
+      where n.session_id = ${sessionId} and n.status = 'OPEN' and r.valid = true
       order by r.round_number desc limit 1 for update of r`;
     const round = (rounds as any[])[0];
     if (!round) return { error: 'Generate a round before filling a spare court' };
@@ -837,7 +870,7 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
     }));
   } else if (nightId) {
     const [roundState, checkedPlayers] = await Promise.all([
-      sql`select coalesce((select max(round_number) + 1 from venue_rounds where night_id = ${nightId}), 1) as next_round,
+      sql`select coalesce((select max(round_number) + 1 from venue_rounds where night_id = ${nightId} and valid = true), 1) as next_round,
         (select courts from venue_sessions where id = ${sessionId}) as courts`,
       loadCheckedInPlayers(sessionId, nightId),
     ]);
@@ -887,6 +920,13 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   const assignedIds = allocation.courts.flatMap((c) => c.players.map((p) => p.id));
   const waitingIds = allocation.waiting.map((p) => p.id);
   const selectedIds = [...assignedIds, ...waitingIds];
+  await sql`insert into venue_round_player_states
+    (round_id, player_id, rounds_waiting, priority_game, sit_out_rounds)
+    select ${roundId}::uuid, p.id, p.rounds_waiting,
+      coalesce(ci.priority_game, false), coalesce(ci.sit_out_rounds, 0)
+    from players p
+    join venue_check_ins ci on ci.player_id = p.id and ci.session_id = ${sessionId}
+  `;
   if (selectedIds.length > 0) {
     await sql`update players set rounds_waiting = case
         when id = any(${assignedIds}::uuid[]) then 0

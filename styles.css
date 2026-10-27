@@ -393,3 +393,4 @@ body.player-authenticated .player-screen { display:block; }
 @media(max-width:900px) { .round-timer { justify-content:flex-start; } }
 /* Screen-reader-only text: used for the timer status announcements. */
 .visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+#invalidate-round-button[hidden] { display: none; }

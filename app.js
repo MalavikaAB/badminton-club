@@ -382,6 +382,7 @@ function applyAllocation(allocation) {
   }));
   waiting = mapPlayers(allocation?.waiting || []);
   document.querySelector('#round-number').textContent = String(roundNumber).padStart(2, '0');
+  document.querySelector('#invalidate-round-button').hidden = roundNumber === 0;
   renderCourts();
   renderWaiting();
   updateGenerateButton();
@@ -1766,6 +1767,26 @@ async function generateNextRound() {
   }
 }
 
+async function invalidateLatestRound() {
+  const roundNumber = Number(document.querySelector('#round-number').textContent);
+  if (!roundNumber || !window.confirm(`Mark round ${roundNumber} invalid? It will be removed from tonight’s game, sit-out, partner, and opponent totals, and you can generate a replacement.`)) return;
+  const button = document.querySelector('#invalidate-round-button');
+  button.disabled = true;
+  button.textContent = 'Regenerating…';
+  try {
+    const response = await fetch(`${apiBaseUrl}/sessions/${selectedSession()}/rounds/invalidate`, { method: 'POST' });
+    if (!response.ok) throw new Error(await readErrorMessage(response));
+    applyAllocation(await response.json());
+    await initializeRoster();
+  } catch (error) {
+    window.alert(error.message || 'Could not invalidate the round.');
+    console.error('Could not invalidate round:', error);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Mark round invalid & regenerate';
+  }
+}
+
 async function createManualRound() {
   const issue = manualLineupIssue();
   if (issue) return;
@@ -2057,6 +2078,7 @@ async function initializeLatestRound() {
 }
 
 document.querySelector('#next-round-button').addEventListener('click', generateNextRound);
+document.querySelector('#invalidate-round-button').addEventListener('click', invalidateLatestRound);
 document.querySelector('#manual-round-button').addEventListener('click', () => manualMode ? cancelManualRound() : startManualRound());
 document.querySelector('#announce-button').addEventListener('click', announce);
 document.querySelector('#timer-toggle').addEventListener('click', toggleRoundTimer);

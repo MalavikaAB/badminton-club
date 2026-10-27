@@ -13,7 +13,7 @@ export async function latestRound(
     ? []
     : knownRound
       ? [{ id: knownRound.id, round_number: knownRound.roundNumber }]
-      : await sql`select id, round_number from venue_rounds where night_id = ${nightId} order by round_number desc limit 1`;
+      : await sql`select id, round_number from venue_rounds where night_id = ${nightId} and valid = true order by round_number desc limit 1`;
   if ((latest as any[]).length === 0) {
     return { roundNumber: 0, courts: [], waiting: [] };
   }
@@ -23,9 +23,9 @@ export async function latestRound(
     p.rounds_waiting, ci.checked_in_at, coalesce(ci.sit_out_rounds, 0) as sit_out_rounds,
     coalesce(ci.priority_game, false) as priority_game,
     (select count(*)::int from venue_rounds present_round
-    where present_round.night_id = ${nightId} and present_round.created_at >= ci.checked_in_at) as rounds_present,
+    where present_round.night_id = ${nightId} and present_round.valid = true and present_round.created_at >= ci.checked_in_at) as rounds_present,
     (select count(*) from venue_round_players games join venue_rounds gr on gr.id = games.round_id
-    where games.player_id = p.id and gr.night_id = ${nightId}) as games_played
+    where games.player_id = p.id and gr.night_id = ${nightId} and gr.valid = true) as games_played
     from venue_round_players rp join players p on p.id = rp.player_id
     left join venue_check_ins ci on ci.player_id = p.id and ci.session_id = ${sessionId}
     where rp.round_id = ${roundId} order by rp.court_number, p.name`;

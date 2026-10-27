@@ -6,7 +6,7 @@ export async function syncNightGameCounts(sessionId: string, nightId: string): P
   await sql`update players p set games_played = coalesce((
     select count(*) from venue_round_players rp
     join venue_rounds r on r.id = rp.round_id
-    where rp.player_id = p.id and r.night_id = ${nightId}), 0)
+    where rp.player_id = p.id and r.night_id = ${nightId} and r.valid = true), 0)
     where p.id in (select player_id from venue_check_ins where session_id = ${sessionId})`;
 }
 
@@ -20,7 +20,7 @@ export async function syncPairCounts(nightId: string): Promise<void> {
     from venue_round_players a
     join venue_round_players b on a.round_id = b.round_id
     and a.court_number = b.court_number and a.player_id < b.player_id
-    where a.round_id in (select id from venue_rounds where night_id = ${nightId})
+    where a.round_id in (select id from venue_rounds where night_id = ${nightId} and valid = true)
     group by a.player_id, b.player_id`;
 }
 
@@ -34,6 +34,7 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
     coalesce(fallback.last_round, 0) as last_fallback_court_round,
     (select count(*)::int from venue_rounds present_round
       where present_round.night_id = ${nightId}
+        and present_round.valid = true
         and present_round.created_at >= ci.checked_in_at) as rounds_present,
     coalesce(pc.pairs, '{}') as pairs, coalesce(pc.opps, '{}') as opps,
     coalesce(lp.partner, '') as last_partner, coalesce(lp.opps, '{}') as last_opps,
@@ -56,19 +57,19 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
     (select array_agg(o.player_id::text) from venue_round_players o
     where o.round_id = rp.round_id and o.court_number is not distinct from rp.court_number
     and o.team is distinct from rp.team) as opps,
-    (select r.round_number from venue_rounds r where r.id = rp.round_id) as last_played_round
+    (select r.round_number from venue_rounds r where r.id = rp.round_id and r.valid = true) as last_played_round
     from venue_round_players rp
     where rp.player_id = p.id
     and rp.round_id = (select r.id from venue_round_players own_rp
     join venue_rounds r on r.id = own_rp.round_id
-    where own_rp.player_id = p.id and r.night_id = ${nightId}
+    where own_rp.player_id = p.id and r.night_id = ${nightId} and r.valid = true
     order by r.round_number desc limit 1)
     limit 1) lp on true
     left join lateral (select count(*)::int as court_count,
       coalesce(max(r.round_number), 0)::int as last_round
       from venue_round_players rp
       join venue_rounds r on r.id = rp.round_id
-      where rp.player_id = p.id and r.night_id = ${nightId}
+      where rp.player_id = p.id and r.night_id = ${nightId} and r.valid = true
       and (rp.format = 'OPEN_DOUBLES' or exists (
         select 1 from venue_round_players other_rp
         join players other_player on other_player.id = other_rp.player_id

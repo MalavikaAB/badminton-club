@@ -68,10 +68,21 @@ create table if not exists venue_rounds (
   id uuid primary key default gen_random_uuid(),
   session_id text not null references venue_sessions(id) on delete cascade,
   round_number integer not null check (round_number > 0),
+  valid boolean not null default true,
   created_at timestamptz not null default now()
 );
+alter table venue_rounds add column if not exists valid boolean not null default true;
 alter table venue_rounds add column if not exists night_id uuid references venue_nights(id) on delete cascade;
-create unique index if not exists venue_rounds_night_id_round_number_key on venue_rounds (night_id, round_number);
+drop index if exists venue_rounds_night_id_round_number_key;
+create unique index if not exists venue_rounds_night_id_round_number_valid_key on venue_rounds (night_id, round_number) where valid = true;
+create table if not exists venue_round_player_states (
+  round_id uuid not null references venue_rounds(id) on delete cascade,
+  player_id uuid not null references players(id) on delete cascade,
+  rounds_waiting integer not null default 0,
+  priority_game boolean not null default false,
+  sit_out_rounds integer not null default 0,
+  primary key (round_id, player_id)
+);
 create table if not exists venue_round_players (
   round_id uuid not null references venue_rounds(id) on delete cascade,
   court_number integer,
