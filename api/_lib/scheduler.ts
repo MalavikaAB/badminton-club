@@ -10,7 +10,7 @@ import {
   buildAllCourts,
 } from './pairing.js';
 
-import { courtCostOf, courtRepeatCountOf, courtRepeatPenaltyCost, isPreferredPartner } from './pairing2.js';
+import { courtCostOf, courtPairingPriorityCostOf, courtRepeatCountOf, isPreferredPartner } from './pairing2.js';
 
 const DEFAULT_COURTS = 6;
 
@@ -1054,7 +1054,7 @@ function buildBestFormatCourts(
       0,
     );
     const repeatPenaltyCost = courts.reduce(
-      (sum, court) => sum + courtRepeatPenaltyCost(court),
+      (sum, court) => sum + courtPairingPriorityCostOf(court),
       0,
     );
     const sameGenderCourtCount = counts.mens + counts.womens;
