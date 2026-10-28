@@ -12,8 +12,6 @@ import type {
  */
 const PARTNER_WEIGHT = 1_000_000;
 const OPPONENT_WEIGHT = 2.0;
-const OPPONENT_PRIORITY_SCALE = 1_000_000_000_000;
-const PREFERRED_PARTNER_BONUS = PARTNER_WEIGHT * relationshipRepeatPenalty(1);
 const SHARED_COURT_WEIGHT = 10;
 const SAME_GENDER_SHARED_COURT_MULTIPLIER = 1.5;
 const BEGINNER_HIGHER_DIVISION_PENALTY = 250;
@@ -39,8 +37,8 @@ export function relationshipRepeatPenalty(meetings: number): number {
  * But they remain penalties rather than impossible states so that
  * a round can still be produced when the player pool is too small.
  */
-export const LAST_PARTNER_PENALTY = 1_000_000;
-export const LAST_OPPONENT_PENALTY = 1000;
+export const LAST_PARTNER_PENALTY = 1_000_000_000;
+export const LAST_OPPONENT_PENALTY = 100_000_000;
 
 export interface Split {
   teamA: Player[];
@@ -258,37 +256,9 @@ export function repeatPenaltyCost(teamA: Player[], teamB: Player[]): number {
   return cost;
 }
 
-/**
- * Pair selection score: opponent repeats stay strictly ahead of partner
- * preferences; preferences then offset one first-time partner-repeat penalty.
- * This encourages a preferred pairing once, and can favor a second pairing
- * on an equal-history choice, while repeated preferred partnerships still
- * accumulate a penalty.
- */
+/** Pair selection preserves repeat penalties; preferred pairs break ties separately. */
 export function courtPairingPriorityCost(teamA: Player[], teamB: Player[]): number {
-  if (teamA.length !== 2 || teamB.length !== 2) return Infinity;
-
-  const opponentCost = OPPONENT_WEIGHT * (
-    relationshipRepeatPenalty(oppWith(teamA[0], teamB[0])) +
-    relationshipRepeatPenalty(oppWith(teamA[0], teamB[1])) +
-    relationshipRepeatPenalty(oppWith(teamA[1], teamB[0])) +
-    relationshipRepeatPenalty(oppWith(teamA[1], teamB[1]))
-  ) + [
-    [teamA[0], teamB[0]], [teamA[0], teamB[1]],
-    [teamA[1], teamB[0]], [teamA[1], teamB[1]],
-  ].reduce((sum, [a, b]) => sum + (opposedLastRound(a, b) ? LAST_OPPONENT_PENALTY : 0), 0);
-
-  const partnerCost = PARTNER_WEIGHT * (
-    relationshipRepeatPenalty(pairWith(teamA[0], teamA[1])) +
-    relationshipRepeatPenalty(pairWith(teamB[0], teamB[1]))
-  ) + (partneredLastRound(teamA[0], teamA[1]) ? LAST_PARTNER_PENALTY : 0)
-    + (partneredLastRound(teamB[0], teamB[1]) ? LAST_PARTNER_PENALTY : 0);
-
-  const preferenceBonus = [
-    [teamA[0], teamA[1]], [teamB[0], teamB[1]],
-  ].reduce((sum, [a, b]) => sum + (isPreferredPartner(a, b) ? PREFERRED_PARTNER_BONUS : 0), 0);
-
-  return opponentCost * OPPONENT_PRIORITY_SCALE + partnerCost - preferenceBonus;
+  return repeatPenaltyCost(teamA, teamB);
 }
 
 export function courtPairingPriorityCostOf(court: CourtAssignment): number {

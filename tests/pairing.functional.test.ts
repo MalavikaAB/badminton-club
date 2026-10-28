@@ -703,6 +703,128 @@ test('new arrivals keep priority until they play and sit-outs appear only once',
   assert.equal(new Set(waitingIds).size, waitingIds.length, 'no player should sit out twice in one round');
 });
 
+test('same-gender doubles is preferred when it keeps repeat quality equal', () => {
+  const players = [
+    ...Array.from({ length: 8 }, (_, index) =>
+      makePlayer(`format-man-${index}`, `Man ${index}`, 'MALE', '10',
+        `2026-01-01T00:00:${String(index).padStart(2, '0')}.000Z`, 0, 0),
+    ),
+    ...Array.from({ length: 4 }, (_, index) =>
+      makePlayer(`format-woman-${index}`, `Woman ${index}`, 'FEMALE', '10',
+        `2026-01-01T00:01:${String(index).padStart(2, '0')}.000Z`, 0, 0),
+    ),
+  ];
+  const allocation = generateRound(1, players, null, false, 3);
+  const formats = allocation.courts.map((court) => court.format);
+
+  assert.equal(allocation.courts.length, 3);
+  assert.equal(allocation.waiting.length, 0);
+  assert(!formats.includes('MIXED_DOUBLES'), `expected all-same-gender plan, got ${formats}`);
+  assert(formats.includes('MENS_DOUBLES'));
+  assert(formats.includes('WOMENS_DOUBLES'));
+});
+
+test('preferred pairings are recognized across multiple preferences over several rounds', () => {
+  const players = ['a', 'b', 'c', 'd'].map((id, index) =>
+    makePlayer(id, id, 'MALE', '10',
+      `2026-01-01T00:00:${String(index).padStart(2, '0')}.000Z`, 0, 0),
+  );
+  players[0].preferredPartnerIds = [players[1].id, players[2].id];
+  const preferredPartnerships = new Map([[players[1].id, 0], [players[2].id, 0]]);
+  const roundCount = 12;
+
+  for (let round = 1; round <= roundCount; round++) {
+    const allocation = generateRound(round, players, ['MENS_DOUBLES'], false, 1);
+    const court = allocation.courts[0];
+    const playerTeam = [court.teamA, court.teamB].find((team) =>
+      team.some((player) => player.id === players[0].id),
+    )!;
+    const partner = playerTeam.find((player) => player.id !== players[0].id)!;
+    if (preferredPartnerships.has(partner.id)) {
+      preferredPartnerships.set(partner.id, preferredPartnerships.get(partner.id)! + 1);
+    }
+    updatePlayerHistory(allocation.courts, allocation.waiting);
+  }
+
+  const totalPreferred = [...preferredPartnerships.values()].reduce((sum, count) => sum + count, 0);
+  console.info(`12-round multi-preference probe: ${JSON.stringify(Object.fromEntries(preferredPartnerships))}`);
+  assert(totalPreferred > 0, 'at least one listed preferred partner should be selected');
+  assert(totalPreferred < roundCount, 'preferences should not force a preferred pairing every round');
+});
+
+test('staggered arrivals spread sit-outs across arrival cohorts', () => {
+  const players = Array.from({ length: 15 }, (_, index) =>
+    makePlayer(`arrival-${index}`, `Arrival ${index}`, 'MALE', '10',
+      `2026-01-01T${String(index < 5 ? 1 : index < 10 ? 5 : 9).padStart(2, '0')}:00:00.000Z`, 0, 0),
+  );
+  const arrivalRound = new Map(players.map((player, index) => [
+    player.id,
+    index < 5 ? 1 : index < 10 ? 5 : 9,
+  ]));
+  const leaveAfter = new Map(players.map((player, index) => [
+    player.id,
+    index < 5 ? 12 : index < 10 ? 14 : 16,
+  ]));
+  const sitRounds = new Map(players.map((player) => [player.id, [] as number[]]));
+  const cohortSits = new Map<string, number>();
+  const crossCohortSits = new Map<string, number>();
+
+  for (let round = 1; round <= 16; round++) {
+    const active = players.filter((player) =>
+      (arrivalRound.get(player.id) ?? 99) <= round
+      && (leaveAfter.get(player.id) ?? 99) >= round,
+    );
+    for (const player of active) {
+      if (arrivalRound.get(player.id) === round) player.priorityGame = true;
+    }
+    const allocation = generateRound(round, active, ['MENS_DOUBLES'], false, 2);
+    const assigned = new Set(allocation.courts.flatMap((court) => court.players.map((player) => player.id)));
+    const sitting = active.filter((player) => !assigned.has(player.id));
+
+    for (const player of active) {
+      player.roundsPresent = (player.roundsPresent ?? 0) + 1;
+      if (!assigned.has(player.id)) {
+        player.roundsWaiting++;
+        sitRounds.get(player.id)!.push(round);
+      }
+    }
+    updatePlayerHistory(allocation.courts);
+    for (const player of active) {
+      if (assigned.has(player.id)) player.priorityGame = false;
+    }
+
+    for (let i = 0; i < sitting.length; i++) {
+      for (let j = i + 1; j < sitting.length; j++) {
+        const firstCohort = arrivalRound.get(sitting[i].id);
+        const secondCohort = arrivalRound.get(sitting[j].id);
+        const key = [sitting[i].id, sitting[j].id].sort().join(':');
+        if (firstCohort === secondCohort) cohortSits.set(key, (cohortSits.get(key) ?? 0) + 1);
+        else crossCohortSits.set(key, (crossCohortSits.get(key) ?? 0) + 1);
+      }
+    }
+  }
+
+  const cohortPatterns = new Map<number, string[]>();
+  for (const player of players) {
+    const cohort = arrivalRound.get(player.id)!;
+    const pattern = sitRounds.get(player.id)!.join(',');
+    const patterns = cohortPatterns.get(cohort) ?? [];
+    patterns.push(pattern);
+    cohortPatterns.set(cohort, patterns);
+  }
+  const identicalPatterns = [...cohortPatterns.entries()].map(([cohort, patterns]) => ({
+    cohort,
+    identicalPairs: patterns.length - new Set(patterns).size,
+  }));
+  console.info(`arrival cohort sit-out patterns: ${JSON.stringify([...cohortPatterns.entries()].map(([cohort, patterns]) => ({ cohort, patterns })))}`);
+  console.info(`arrival cohort sit-out identical patterns: ${JSON.stringify(identicalPatterns)}`);
+  console.info(`arrival cohort shared-sit pair counts: same-cohort=${[...cohortSits.values()].reduce((a, b) => a + b, 0)}, cross-cohort=${[...crossCohortSits.values()].reduce((a, b) => a + b, 0)}`);
+
+  assert(identicalPatterns.every(({ identicalPairs }) => identicalPairs < 4),
+    'in a multi-court pool, an entire five-player arrival cohort should not have identical sit sequences');
+  assert(players.every((player) => sitRounds.get(player.id)!.length <= 1 || player.gamesPlayed > 0));
+});
+
 test('players return to the back of the queue after playing', () => {
   const players = Array.from({ length: 5 }, (_, index) =>
     makePlayer(
