@@ -547,12 +547,14 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
         and a.team in ('A', 'B')
         and b.team in ('A', 'B')
       group by a.player_id, b.player_id`,
-    sql`select r.round_number, rp.player_id, r.created_at
+    sql`select r.round_number, rp.player_id, p.name, p.division,
+        rp.court_number, rp.format, rp.team, r.created_at
       from venue_rounds r
       join venue_nights n on n.id = r.night_id
       left join venue_round_players rp on rp.round_id = r.id
+      left join players p on p.id = rp.player_id
       where n.session_id = ${sessionId} and n.status = 'OPEN' and r.valid = true
-      order by r.round_number`,
+      order by r.round_number, rp.court_number, rp.team, p.name`,
     sql`select player_id, checked_in_at, checked_out_at from venue_check_ins where session_id = ${sessionId}`,
   ]);
 
@@ -586,12 +588,33 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
 
   // Build round creation time map and player check-in time map
   const roundCreatedAt = new Map<number, Date>();
+  const roundAssignments = new Map<number, Map<number, {
+    courtNumber: number;
+    format: string;
+    teams: Record<string, Array<{ id: string; name: string; division: string }>>;
+  }>>();
   for (const row of roundParticipationRows as any[]) {
     const roundNumber = Number(row.round_number);
     if (roundNumber <= 0) continue;
     if (!roundCreatedAt.has(roundNumber)) {
       roundCreatedAt.set(roundNumber, new Date(row.created_at));
     }
+    if (!row.player_id || row.court_number == null) continue;
+    const courts = roundAssignments.get(roundNumber) ?? new Map();
+    const courtNumber = Number(row.court_number);
+    const court = courts.get(courtNumber) ?? {
+      courtNumber,
+      format: String(row.format ?? 'DOUBLES'),
+      teams: { A: [], B: [] },
+    };
+    const team = row.team === 'B' ? 'B' : 'A';
+    court.teams[team].push({
+      id: String(row.player_id),
+      name: String(row.name ?? 'Unknown player'),
+      division: String(row.division ?? ''),
+    });
+    courts.set(courtNumber, court);
+    roundAssignments.set(roundNumber, courts);
   }
   const playerCheckedInAt = new Map<string, Date>();
   const playerCheckedOutAt = new Map<string, Date>();
@@ -660,6 +683,13 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
     nightId,
     roundsPlayed: Number((roundRows as any[])[0]?.rounds_played ?? 0),
     players: playersWithStats,
+    rounds: [...allRoundNumbers].sort((a, b) => a - b).map((roundNumber) => ({
+      roundNumber,
+      courts: [...(roundAssignments.get(roundNumber)?.values() ?? [])],
+      waiting: playersWithStats
+        .filter((player) => player.sits[roundNumber - 1] === 0)
+        .map(({ id, name, division }) => ({ id, name, division })),
+    })),
   });
 }
 

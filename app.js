@@ -685,6 +685,40 @@ async function loadStatistics() {
         </table>
       </div>`;
 
+    const roundRows = (Array.isArray(statistics.rounds) ? statistics.rounds : []).map(round => {
+      const courts = (Array.isArray(round.courts) ? round.courts : []).map(court => {
+        const side = team => (Array.isArray(court.teams?.[team]) ? court.teams[team] : [])
+          .map(player => `${escapeHtml(player.name)} <small>Div ${escapeHtml(player.division)}</small>`)
+          .join(', ') || '—';
+        const format = String(court.format || 'DOUBLES').replaceAll('_', ' ').toLowerCase()
+          .replace(/\b\w/g, letter => letter.toUpperCase());
+        return `<div class="statistics-round-court">
+          <strong>Court ${Number(court.courtNumber) || '—'} · ${escapeHtml(format)}</strong>
+          <div><span class="statistics-round-side-label">A:</span> ${side('A')}</div>
+          <div><span class="statistics-round-side-label">B:</span> ${side('B')}</div>
+        </div>`;
+      }).join('') || '<span class="muted">No court assignments</span>';
+      const waiting = (Array.isArray(round.waiting) ? round.waiting : [])
+        .map(player => `${escapeHtml(player.name)} <small>Div ${escapeHtml(player.division)}</small>`)
+        .join(', ') || 'None';
+      return `<tr>
+        <th scope="row">Round ${Number(round.roundNumber) || '—'}</th>
+        <td>${courts}</td>
+        <td>${waiting}</td>
+      </tr>`;
+    }).join('');
+    const roundsTable = `
+      <section class="statistics-rounds-section" aria-labelledby="statistics-rounds-heading">
+        <h3 id="statistics-rounds-heading">Round-by-round assignments</h3>
+        <p class="statistics-legend">See who played on each court and who was waiting. Court sides show partners (same side) and opponents (other side).</p>
+        <div class="statistics-round-table-scroll" role="region" aria-label="Round-by-round court assignments and waiting players" tabindex="0">
+          <table class="statistics-round-table">
+            <thead><tr><th scope="col">Round</th><th scope="col">Courts and players</th><th scope="col">Waiting</th></tr></thead>
+            <tbody>${roundRows}</tbody>
+          </table>
+        </div>
+      </section>`;
+
             // Build the sit-out tally summary table
             const tallyRows = players.map(player => {
               const seq = player.sits.map(v => v === 1 ? '1' : v === 0 ? '0' : 'x').join('');
@@ -709,6 +743,7 @@ async function loadStatistics() {
       </div>`;
 
     matrix.innerHTML = `${matrixTable}
+      ${roundsTable}
       <p class="statistics-legend"><strong>Sit-out tally per player:</strong> 1 = played, 0 = sat out, x = not checked in yet or already checked out. Shows total sits, longest consecutive sit streak, and the round-by-round sequence.</p>
       ${tallyTable}`;
   } catch (loadError) {
