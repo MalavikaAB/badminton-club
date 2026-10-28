@@ -1061,11 +1061,11 @@ function buildBestFormatCourts(
     if (
       repeatPenaltyCost < bestRepeatPenaltyCost ||
       (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount > bestPreferredPairCount) ||
-      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount === bestPreferredPairCount && score < bestScore) ||
-      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount === bestPreferredPairCount && score === bestScore && repeatCount < bestRepeatCount) ||
-      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount === bestPreferredPairCount && score === bestScore &&
-        repeatCount === bestRepeatCount &&
-        sameGenderCourtCount > bestSameGenderCourtCount)
+      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount === bestPreferredPairCount && repeatCount < bestRepeatCount) ||
+      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount === bestPreferredPairCount &&
+        repeatCount === bestRepeatCount && sameGenderCourtCount > bestSameGenderCourtCount) ||
+      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount === bestPreferredPairCount &&
+        repeatCount === bestRepeatCount && sameGenderCourtCount === bestSameGenderCourtCount && score < bestScore)
     ) {
       best = courts;
       bestRepeatCount = repeatCount;
