@@ -28,16 +28,6 @@ export interface Player {
   lastFallbackCourtRound?: number;
   /** Optional soft preferences used only when they improve a viable round. Players may name several preferred partners; they are partnered with a preferred player only when that player is also in the round pool. Never affects wait times, sit-outs or number of games. */
   preferredPartnerIds: string[];
-  /** Lifetime eligible and fulfilled preference opportunities for this club night. */
-  eligiblePreferenceOpportunities?: number;
-  fulfilledPreferenceOpportunities?: number;
-  /** Last eight eligible opportunities drive the adaptive preference score. */
-  recentEligibleOpportunities?: number;
-  recentFulfilledOpportunities?: number;
-  lastPreferredPartner?: string | null;
-  preferredPartnerHistory?: Record<string, number>;
-  /** Round-scoped seed used only after hard and major quality scores tie. */
-  allocationSeed?: number;
   preferredFormat: PreferredFormat;
   /** ISO-8601 timestamp of check-in; epoch when unknown. */
   checkedInAt: string;
@@ -91,10 +81,6 @@ export function makePlayer(
   lastOpponents: string[] = [],
   preferredPartnerIds: string[] = [],
   preferredFormat: PreferredFormat = 'NONE',
-  preferenceHistory: Partial<Pick<Player,
-    'eligiblePreferenceOpportunities' | 'fulfilledPreferenceOpportunities' |
-    'recentEligibleOpportunities' | 'recentFulfilledOpportunities' |
-    'lastPreferredPartner' | 'preferredPartnerHistory'>> = {},
 ): Player {
   return {
     id,
@@ -102,7 +88,6 @@ export function makePlayer(
     gender,
     division: division ?? '',
     preferredPartnerIds: [...preferredPartnerIds],
-    ...preferenceHistory,
     preferredFormat,
     checkedInAt,
     gamesPlayed,

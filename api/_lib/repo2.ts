@@ -38,12 +38,7 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
         and present_round.created_at >= ci.checked_in_at) as rounds_present,
     coalesce(pc.pairs, '{}') as pairs, coalesce(pc.opps, '{}') as opps,
     coalesce(lp.partner, '') as last_partner, coalesce(lp.opps, '{}') as last_opps,
-    coalesce(lp.last_played_round, 0) as last_played_round,
-    coalesce(preference_totals.eligible, 0) as eligible_preference_opportunities,
-    coalesce(preference_totals.fulfilled, 0) as fulfilled_preference_opportunities,
-    coalesce(preference_recent.eligible, 0) as recent_eligible_opportunities,
-    coalesce(preference_recent.fulfilled, 0) as recent_fulfilled_opportunities,
-    coalesce(preference_last.partner_id, '') as last_preferred_partner
+    coalesce(lp.last_played_round, 0) as last_played_round
     from venue_check_ins ci
     join players p on p.id = ci.player_id
     left join lateral (select coalesce(array_agg(
@@ -70,37 +65,6 @@ export async function loadCheckedInPlayers(sessionId: string, nightId: string | 
     where own_rp.player_id = p.id and r.night_id = ${nightId} and r.valid = true
     order by r.round_number desc limit 1)
     limit 1) lp on true
-    left join lateral (
-      select count(*)::int as eligible,
-        count(*) filter (where preference.fulfilled)::int as fulfilled
-      from venue_round_preference_stats preference
-      join venue_rounds preference_round on preference_round.id = preference.round_id
-      where preference.player_id = p.id and preference.eligible = true
-        and preference_round.night_id = ${nightId} and preference_round.valid = true
-    ) preference_totals on true
-    left join lateral (
-      select count(*)::int as eligible,
-        count(*) filter (where recent.fulfilled)::int as fulfilled
-      from (
-        select preference.fulfilled
-        from venue_round_preference_stats preference
-        join venue_rounds preference_round on preference_round.id = preference.round_id
-        where preference.player_id = p.id and preference.eligible = true
-          and preference_round.night_id = ${nightId} and preference_round.valid = true
-        order by preference_round.round_number desc
-        limit 8
-      ) recent
-    ) preference_recent on true
-    left join lateral (
-      select preference.fulfilled_partner_id::text as partner_id
-      from venue_round_preference_stats preference
-      join venue_rounds preference_round on preference_round.id = preference.round_id
-      where preference.player_id = p.id and preference.eligible = true
-        and preference.fulfilled = true
-        and preference_round.night_id = ${nightId} and preference_round.valid = true
-      order by preference_round.round_number desc
-      limit 1
-    ) preference_last on true
     left join lateral (select count(*)::int as court_count,
       coalesce(max(r.round_number), 0)::int as last_round
       from venue_round_players rp
@@ -133,18 +97,10 @@ function parseIds(entries: string[]): string[] {
 
 function toPlayer(r: any): Player {
   const checkedInAt = r.checked_in_at ? new Date(r.checked_in_at).toISOString() : EPOCH;
-  const preferredPartnerIds: string[] = (r.partner_preferences ?? []).map((id: unknown) => String(id));
-  const pairCount = parseCounts(r.pairs);
   return {
     id: String(r.id), name: r.name, gender: r.gender as Gender,
     division: String(r.division ?? ''), beginner: r.beginner === true,
-    preferredPartnerIds,
-    eligiblePreferenceOpportunities: Number(r.eligible_preference_opportunities ?? 0),
-    fulfilledPreferenceOpportunities: Number(r.fulfilled_preference_opportunities ?? 0),
-    recentEligibleOpportunities: Number(r.recent_eligible_opportunities ?? 0),
-    recentFulfilledOpportunities: Number(r.recent_fulfilled_opportunities ?? 0),
-    lastPreferredPartner: r.last_preferred_partner ? String(r.last_preferred_partner) : null,
-    preferredPartnerHistory: Object.fromEntries(preferredPartnerIds.map((id) => [id, pairCount[id] ?? 0])),
+    preferredPartnerIds: (r.partner_preferences ?? []).map((id: unknown) => String(id)),
     preferredFormat: 'NONE', checkedInAt,
     gamesPlayed: Number(r.games_played ?? 0),
     roundsPresent: Number(r.rounds_present ?? 0),
@@ -154,7 +110,7 @@ function toPlayer(r: any): Player {
     lastPlayedRound: Number(r.last_played_round ?? 0),
     fallbackCourtCount: Number(r.fallback_court_count ?? 0),
     lastFallbackCourtRound: Number(r.last_fallback_court_round ?? 0),
-    pairCount, oppCount: parseCounts(r.opps),
+    pairCount: parseCounts(r.pairs), oppCount: parseCounts(r.opps),
     lastPartner: r.last_partner ? String(r.last_partner) : null,
     lastOpponents: parseIds(r.last_opps),
   };

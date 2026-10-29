@@ -10,16 +10,7 @@ import {
   buildAllCourts,
 } from './pairing.js';
 
-import {
-  addRepeatPenaltyCosts,
-  compareRepeatPenaltyCosts,
-  courtCostOf,
-  courtRepeatCountOf,
-  courtRepeatPenaltyCostsOf,
-  preferredPairScore,
-  seededAllocationTieBreak,
-  type RepeatPenaltyCosts,
-} from './pairing2.js';
+import { courtCostOf, courtPairingPriorityCostOf, courtRepeatCountOf, isPreferredPartner } from './pairing2.js';
 
 const DEFAULT_COURTS = 6;
 
@@ -62,7 +53,6 @@ export function generateRound(
 ): RoundAllocation {
   const resting = checkedInPlayers.filter((p) => p.sittingOut);
   const active = checkedInPlayers.filter((p) => !p.sittingOut);
-  for (const player of active) player.allocationSeed = roundNumber;
 
   const requested =
     !courtFormats || courtFormats.length === 0
@@ -1033,10 +1023,9 @@ function buildBestFormatCourts(
   let best: CourtAssignment[] | null = null;
   let bestRepeatCount = Number.POSITIVE_INFINITY;
   let bestScore = Number.POSITIVE_INFINITY;
-  let bestRepeatPenalties: RepeatPenaltyCosts = { opponent: Number.POSITIVE_INFINITY, partner: Number.POSITIVE_INFINITY };
-  let bestPreferredScore = -1;
+  let bestRepeatPenaltyCost = Number.POSITIVE_INFINITY;
+  let bestPreferredPairCount = -1;
   let bestSameGenderCourtCount = -1;
-  let bestTieBreakScore = -1;
   for (const plan of candidates) {
     const courts = buildAllCourts(selected, courtCount, plan);
     if (courts.length !== courtCount) continue;
@@ -1058,37 +1047,32 @@ function buildBestFormatCourts(
       (sum, court) => sum + courtRepeatCountOf(court),
       0,
     );
-    const preferredScore = courts.reduce(
+    const preferredPairCount = courts.reduce(
       (sum, court) => sum +
-        preferredPairScore(court.teamA[0], court.teamA[1]) +
-        preferredPairScore(court.teamB[0], court.teamB[1]),
+        Number(isPreferredPartner(court.teamA[0], court.teamA[1])) +
+        Number(isPreferredPartner(court.teamB[0], court.teamB[1])),
       0,
     );
-    const repeatPenalties = courts.reduce(
-      (sum, court) => addRepeatPenaltyCosts(sum, courtRepeatPenaltyCostsOf(court)),
-      { opponent: 0, partner: 0 } as RepeatPenaltyCosts,
+    const repeatPenaltyCost = courts.reduce(
+      (sum, court) => sum + courtPairingPriorityCostOf(court),
+      0,
     );
     const sameGenderCourtCount = counts.mens + counts.womens;
-    const tieBreakScore = seededAllocationTieBreak(selected, plan.join('|'));
-    const repeatComparison = compareRepeatPenaltyCosts(repeatPenalties, bestRepeatPenalties);
     if (
-      repeatComparison < 0 ||
-      (repeatComparison === 0 && preferredScore > bestPreferredScore) ||
-      (repeatComparison === 0 && preferredScore === bestPreferredScore && repeatCount < bestRepeatCount) ||
-      (repeatComparison === 0 && preferredScore === bestPreferredScore &&
+      repeatPenaltyCost < bestRepeatPenaltyCost ||
+      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount > bestPreferredPairCount) ||
+      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount === bestPreferredPairCount && repeatCount < bestRepeatCount) ||
+      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount === bestPreferredPairCount &&
         repeatCount === bestRepeatCount && sameGenderCourtCount > bestSameGenderCourtCount) ||
-      (repeatComparison === 0 && preferredScore === bestPreferredScore &&
-        repeatCount === bestRepeatCount && sameGenderCourtCount === bestSameGenderCourtCount && score < bestScore) ||
-      (repeatComparison === 0 && preferredScore === bestPreferredScore &&
-        repeatCount === bestRepeatCount && sameGenderCourtCount === bestSameGenderCourtCount && score === bestScore && tieBreakScore > bestTieBreakScore)
+      (repeatPenaltyCost === bestRepeatPenaltyCost && preferredPairCount === bestPreferredPairCount &&
+        repeatCount === bestRepeatCount && sameGenderCourtCount === bestSameGenderCourtCount && score < bestScore)
     ) {
       best = courts;
       bestRepeatCount = repeatCount;
       bestScore = score;
-      bestRepeatPenalties = repeatPenalties;
-      bestPreferredScore = preferredScore;
+      bestRepeatPenaltyCost = repeatPenaltyCost;
+      bestPreferredPairCount = preferredPairCount;
       bestSameGenderCourtCount = sameGenderCourtCount;
-      bestTieBreakScore = tieBreakScore;
     }
   }
 

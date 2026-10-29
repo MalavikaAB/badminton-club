@@ -12,8 +12,6 @@ import type {
  */
 const PARTNER_WEIGHT = 1_000_000;
 const OPPONENT_WEIGHT = 2.0;
-const PREFERENCE_TARGET_RATE = 0.75;
-const PREFERENCE_BASE_BONUS = 4;
 const SHARED_COURT_WEIGHT = 10;
 const SAME_GENDER_SHARED_COURT_MULTIPLIER = 1.5;
 const BEGINNER_HIGHER_DIVISION_PENALTY = 250;
@@ -151,46 +149,13 @@ export function isPreferredPartner(a: Player, b: Player): boolean {
   );
 }
 
-function directionalPreferenceBonus(player: Player, other: Player): number {
-  if (!(player.preferredPartnerIds ?? []).includes(other.id)) return 0;
-  const eligible = Math.max(0, Number(player.recentEligibleOpportunities ?? 0));
-  const fulfilled = Math.max(0, Number(player.recentFulfilledOpportunities ?? 0));
-  const rate = eligible > 0 ? fulfilled / eligible : 0;
-  const adjustment = rate < PREFERENCE_TARGET_RATE
-    ? 1 + (PREFERENCE_TARGET_RATE - rate) / PREFERENCE_TARGET_RATE
-    : Math.max(0, (1 - rate) * 0.2);
-  const history = Math.max(0, Number(player.preferredPartnerHistory?.[other.id] ?? pairWith(player, other)));
-  const recency = player.lastPreferredPartner === other.id ? 0.5 : 1;
-  return PREFERENCE_BASE_BONUS * adjustment * recency / (1 + history * 0.25);
+function preferredPairCount(teamA: Player[], teamB: Player[]): number {
+  return Number(isPreferredPartner(teamA[0], teamA[1])) +
+    Number(isPreferredPartner(teamB[0], teamB[1]));
 }
 
-/** Directional preference score; mutual preferences receive both bonuses. */
-export function preferredPairScore(a: Player, b: Player): number {
-  return directionalPreferenceBonus(a, b) + directionalPreferenceBonus(b, a);
-}
-
-/** Stable round-seeded tie score for reproducible variety after quality ties. */
-export function seededAllocationTieBreak(players: Player[], key = ''): number {
-  const seed = players.reduce((value, player) => Math.max(value, Number(player.allocationSeed ?? 0)), 0);
-  const input = `${seed}|${key || players.map((player) => player.id).sort().join('|')}`;
-  let hash = 2_166_136_261;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16_777_619);
-  }
-  return (hash >>> 0) / 4_294_967_295;
-}
-
-function splitTieBreakScore(teamA: Player[], teamB: Player[]): number {
-  const teams = [
-    teamA.map((player) => player.id).sort().join(','),
-    teamB.map((player) => player.id).sort().join(','),
-  ].sort().join('|');
-  return seededAllocationTieBreak([...teamA, ...teamB], teams);
-}
-
-function preferredCourtScore(teamA: Player[], teamB: Player[]): number {
-  return preferredPairScore(teamA[0], teamA[1]) + preferredPairScore(teamB[0], teamB[1]);
+function preferredCourtPairCount(court: CourtAssignment): number {
+  return preferredPairCount(court.teamA, court.teamB);
 }
 
 export function courtRepeatCountOf(
@@ -262,60 +227,33 @@ export function courtCost(
   return cost;
 }
 
-export interface RepeatPenaltyCosts {
-  opponent: number;
-  partner: number;
-}
+/** Historical and immediate partner/opponent penalties, excluding other cost terms. */
+export function repeatPenaltyCost(teamA: Player[], teamB: Player[]): number {
+  if (teamA.length !== 2 || teamB.length !== 2) return Infinity;
 
-/** Compare repeat costs in the requested order: opponents first, then partners. */
-export function compareRepeatPenaltyCosts(a: RepeatPenaltyCosts, b: RepeatPenaltyCosts): number {
-  return a.opponent - b.opponent || a.partner - b.partner;
-}
-
-export function repeatPenaltyCosts(teamA: Player[], teamB: Player[]): RepeatPenaltyCosts {
-  if (teamA.length !== 2 || teamB.length !== 2) return { opponent: Infinity, partner: Infinity };
-
-  let partner = PARTNER_WEIGHT * (
+  let cost = PARTNER_WEIGHT * (
     relationshipRepeatPenalty(pairWith(teamA[0], teamA[1])) +
     relationshipRepeatPenalty(pairWith(teamB[0], teamB[1]))
   );
-  let opponent = OPPONENT_WEIGHT * (
+  cost += OPPONENT_WEIGHT * (
     relationshipRepeatPenalty(oppWith(teamA[0], teamB[0])) +
     relationshipRepeatPenalty(oppWith(teamA[0], teamB[1])) +
     relationshipRepeatPenalty(oppWith(teamA[1], teamB[0])) +
     relationshipRepeatPenalty(oppWith(teamA[1], teamB[1]))
   );
 
-  if (partneredLastRound(teamA[0], teamA[1])) partner += LAST_PARTNER_PENALTY;
-  if (partneredLastRound(teamB[0], teamB[1])) partner += LAST_PARTNER_PENALTY;
+  if (partneredLastRound(teamA[0], teamA[1])) cost += LAST_PARTNER_PENALTY;
+  if (partneredLastRound(teamB[0], teamB[1])) cost += LAST_PARTNER_PENALTY;
   for (const [a, b] of [
     [teamA[0], teamB[0]],
     [teamA[0], teamB[1]],
     [teamA[1], teamB[0]],
     [teamA[1], teamB[1]],
   ]) {
-    if (opposedLastRound(a, b)) opponent += LAST_OPPONENT_PENALTY;
+    if (opposedLastRound(a, b)) cost += LAST_OPPONENT_PENALTY;
   }
 
-  return { opponent, partner };
-}
-
-/** Historical and immediate partner/opponent penalties, excluding other cost terms. */
-export function repeatPenaltyCost(teamA: Player[], teamB: Player[]): number {
-  const costs = repeatPenaltyCosts(teamA, teamB);
-  return costs.opponent + costs.partner;
-}
-
-export function courtRepeatPenaltyCostsOf(court: CourtAssignment): RepeatPenaltyCosts {
-  return repeatPenaltyCosts(court.teamA, court.teamB);
-}
-
-export function addRepeatPenaltyCosts(a: RepeatPenaltyCosts, b: RepeatPenaltyCosts): RepeatPenaltyCosts {
-  return { opponent: a.opponent + b.opponent, partner: a.partner + b.partner };
-}
-
-export function subtractRepeatPenaltyCosts(a: RepeatPenaltyCosts, b: RepeatPenaltyCosts): RepeatPenaltyCosts {
-  return { opponent: a.opponent - b.opponent, partner: a.partner - b.partner };
+  return cost;
 }
 
 /** Pair selection preserves repeat penalties; preferred pairs break ties separately. */
@@ -456,9 +394,8 @@ export function bestSplit(
 
   let bestRepeatCount = Infinity;
   let bestCost = Infinity;
-  let bestRepeatPenalties: RepeatPenaltyCosts = { opponent: Infinity, partner: Infinity };
-  let bestPreferredScore = -1;
-  let bestTieBreakScore = -1;
+  let bestRepeatPenaltyCost = Infinity;
+  let bestPreferredPairCount = -1;
 
   let bestA: Player[] = [];
   let bestB: Player[] = [];
@@ -492,23 +429,19 @@ export function bestSplit(
         teamB,
       );
     const repeatCount = repeatCountOf(teamA, teamB);
-    const preferenceScore = preferredCourtScore(teamA, teamB);
-    const repeatCosts = repeatPenaltyCosts(teamA, teamB);
-    const repeatComparison = compareRepeatPenaltyCosts(repeatCosts, bestRepeatPenalties);
-    const tieBreakScore = splitTieBreakScore(teamA, teamB);
+    const preferredCount = preferredPairCount(teamA, teamB);
+    const repeatCost = courtPairingPriorityCost(teamA, teamB);
 
     if (
-      repeatComparison < 0 ||
-      (repeatComparison === 0 && preferenceScore > bestPreferredScore) ||
-      (repeatComparison === 0 && preferenceScore === bestPreferredScore && cost < bestCost) ||
-      (repeatComparison === 0 && preferenceScore === bestPreferredScore && cost === bestCost && repeatCount < bestRepeatCount) ||
-      (repeatComparison === 0 && preferenceScore === bestPreferredScore && cost === bestCost && repeatCount === bestRepeatCount && tieBreakScore > bestTieBreakScore)
+      repeatCost < bestRepeatPenaltyCost ||
+      (repeatCost === bestRepeatPenaltyCost && preferredCount > bestPreferredPairCount) ||
+      (repeatCost === bestRepeatPenaltyCost && preferredCount === bestPreferredPairCount && cost < bestCost) ||
+      (repeatCost === bestRepeatPenaltyCost && preferredCount === bestPreferredPairCount && cost === bestCost && repeatCount < bestRepeatCount)
     ) {
       bestRepeatCount = repeatCount;
       bestCost = cost;
-      bestRepeatPenalties = repeatCosts;
-      bestPreferredScore = preferenceScore;
-      bestTieBreakScore = tieBreakScore;
+      bestRepeatPenaltyCost = repeatCost;
+      bestPreferredPairCount = preferredCount;
       bestA = teamA;
       bestB = teamB;
     }
@@ -616,19 +549,19 @@ export function localSearch(
       (total, court) => total + courtCostOf(court),
       0,
     );
-    const currentRepeatPenalties = courts.reduce(
-      (total, court) => addRepeatPenaltyCosts(total, courtRepeatPenaltyCostsOf(court)),
-      { opponent: 0, partner: 0 } as RepeatPenaltyCosts,
+    const currentRepeatPenaltyCost = courts.reduce(
+      (total, court) => total + courtPairingPriorityCostOf(court),
+      0,
     );
-    const currentPreferredScore = courts.reduce(
-      (total, court) => total + preferredCourtScore(court.teamA, court.teamB),
+    const currentPreferredPairCount = courts.reduce(
+      (total, court) => total + preferredCourtPairCount(court),
       0,
     );
 
     let bestRepeatCount = currentRepeatCount;
     let bestCost = currentCost;
-    let bestRepeatPenalties = currentRepeatPenalties;
-    let bestPreferredScore = currentPreferredScore;
+    let bestRepeatPenaltyCost = currentRepeatPenaltyCost;
+    let bestPreferredPairCount = currentPreferredPairCount;
     let bestMove: {
       courtAIndex: number;
       courtBIndex: number;
@@ -681,37 +614,32 @@ export function localSearch(
               courtCostOf(courtB) +
               splitA.cost +
               splitB.cost;
-            const nextRepeatPenalties = addRepeatPenaltyCosts(
-              subtractRepeatPenaltyCosts(
-                subtractRepeatPenaltyCosts(currentRepeatPenalties, courtRepeatPenaltyCostsOf(courtA)),
-                courtRepeatPenaltyCostsOf(courtB),
-              ),
-              addRepeatPenaltyCosts(
-                repeatPenaltyCosts(splitA.teamA, splitA.teamB),
-                repeatPenaltyCosts(splitB.teamA, splitB.teamB),
-              ),
-            );
-            const nextPreferredScore =
-              currentPreferredScore -
-              preferredCourtScore(courtA.teamA, courtA.teamB) -
-              preferredCourtScore(courtB.teamA, courtB.teamB) +
-              preferredCourtScore(splitA.teamA, splitA.teamB) +
-              preferredCourtScore(splitB.teamA, splitB.teamB);
+            const nextRepeatPenaltyCost =
+              currentRepeatPenaltyCost -
+              courtPairingPriorityCostOf(courtA) -
+              courtPairingPriorityCostOf(courtB) +
+              courtPairingPriorityCost(splitA.teamA, splitA.teamB) +
+              courtPairingPriorityCost(splitB.teamA, splitB.teamB);
+            const nextPreferredPairCount =
+              currentPreferredPairCount -
+              preferredCourtPairCount(courtA) -
+              preferredCourtPairCount(courtB) +
+              preferredPairCount(splitA.teamA, splitA.teamB) +
+              preferredPairCount(splitB.teamA, splitB.teamB);
 
-            const repeatComparison = compareRepeatPenaltyCosts(nextRepeatPenalties, bestRepeatPenalties);
             if (
-              repeatComparison > 0 ||
-              (repeatComparison === 0 && nextPreferredScore < bestPreferredScore) ||
-              (repeatComparison === 0 && nextPreferredScore === bestPreferredScore && nextCost > bestCost) ||
-              (repeatComparison === 0 && nextPreferredScore === bestPreferredScore && nextCost === bestCost && nextRepeatCount >= bestRepeatCount)
+              nextRepeatPenaltyCost > bestRepeatPenaltyCost ||
+              (nextRepeatPenaltyCost === bestRepeatPenaltyCost && nextPreferredPairCount < bestPreferredPairCount) ||
+              (nextRepeatPenaltyCost === bestRepeatPenaltyCost && nextPreferredPairCount === bestPreferredPairCount && nextCost > bestCost) ||
+              (nextRepeatPenaltyCost === bestRepeatPenaltyCost && nextPreferredPairCount === bestPreferredPairCount && nextCost === bestCost && nextRepeatCount >= bestRepeatCount)
             ) {
               continue;
             }
 
             bestRepeatCount = nextRepeatCount;
             bestCost = nextCost;
-            bestRepeatPenalties = nextRepeatPenalties;
-            bestPreferredScore = nextPreferredScore;
+            bestRepeatPenaltyCost = nextRepeatPenaltyCost;
+            bestPreferredPairCount = nextPreferredPairCount;
             bestMove = {
               courtAIndex: i,
               courtBIndex: j,
@@ -813,9 +741,8 @@ export function buildCourtFromPool(
 
   let bestRepeatCount = Infinity;
   let bestCost = Infinity;
-  let bestRepeatPenalties: RepeatPenaltyCosts = { opponent: Infinity, partner: Infinity };
-  let bestPreferredScore = -1;
-  let bestLineupTieBreakScore = -1;
+  let bestRepeatPenaltyCost = Infinity;
+  let bestPreferredPairCount = -1;
 
   for (
     let i = 0;
@@ -867,24 +794,20 @@ export function buildCourtFromPool(
             continue;
           }
 
-          const candidatePreferredScore = preferredCourtScore(split.teamA, split.teamB);
-          const candidateRepeatPenalties = repeatPenaltyCosts(split.teamA, split.teamB);
-          const repeatComparison = compareRepeatPenaltyCosts(candidateRepeatPenalties, bestRepeatPenalties);
-          const lineupTieBreakScore = seededAllocationTieBreak(four, format);
+          const candidatePreferredPairCount = preferredPairCount(split.teamA, split.teamB);
+          const candidateRepeatPenaltyCost = courtPairingPriorityCost(split.teamA, split.teamB);
           if (
-            repeatComparison < 0 ||
-            (repeatComparison === 0 && candidatePreferredScore > bestPreferredScore) ||
-            (repeatComparison === 0 && candidatePreferredScore === bestPreferredScore && split.cost < bestCost) ||
-            (repeatComparison === 0 && candidatePreferredScore === bestPreferredScore && split.cost === bestCost && split.repeatCount < bestRepeatCount) ||
-            (repeatComparison === 0 && candidatePreferredScore === bestPreferredScore && split.cost === bestCost && split.repeatCount === bestRepeatCount && lineupTieBreakScore > bestLineupTieBreakScore)
+            candidateRepeatPenaltyCost < bestRepeatPenaltyCost ||
+            (candidateRepeatPenaltyCost === bestRepeatPenaltyCost && candidatePreferredPairCount > bestPreferredPairCount) ||
+            (candidateRepeatPenaltyCost === bestRepeatPenaltyCost && candidatePreferredPairCount === bestPreferredPairCount && split.cost < bestCost) ||
+            (candidateRepeatPenaltyCost === bestRepeatPenaltyCost && candidatePreferredPairCount === bestPreferredPairCount && split.cost === bestCost && split.repeatCount < bestRepeatCount)
           ) {
             bestRepeatCount =
               split.repeatCount;
             bestCost =
               split.cost;
-            bestRepeatPenalties = candidateRepeatPenalties;
-            bestPreferredScore = candidatePreferredScore;
-            bestLineupTieBreakScore = lineupTieBreakScore;
+            bestRepeatPenaltyCost = candidateRepeatPenaltyCost;
+            bestPreferredPairCount = candidatePreferredPairCount;
 
             bestPlayers = four;
             bestTeamA =
@@ -939,7 +862,7 @@ export function splitPartialOpenCourt(players: Player[]): { teamA: Player[]; tea
   pairOptions.sort((a, b) =>
     Number(partneredLastRound(a[0], a[1])) - Number(partneredLastRound(b[0], b[1]))
     || relationshipRepeatPenalty(pairWith(a[0], a[1])) - relationshipRepeatPenalty(pairWith(b[0], b[1]))
-    || preferredPairScore(b[0], b[1]) - preferredPairScore(a[0], a[1]),
+    || Number(isPreferredPartner(b[0], b[1])) - Number(isPreferredPartner(a[0], a[1])),
   );
   const teamA = pairOptions[0];
   return { teamA, teamB: players.filter((player) => !teamA.includes(player)) };
@@ -978,9 +901,8 @@ export function buildMixedCourt(
 
   let bestRepeatCount = Infinity;
   let bestCost = Infinity;
-  let bestRepeatPenalties: RepeatPenaltyCosts = { opponent: Infinity, partner: Infinity };
-  let bestPreferredScore = -1;
-  let bestLineupTieBreakScore = -1;
+  let bestRepeatPenaltyCost = Infinity;
+  let bestPreferredPairCount = -1;
 
   for (
     let i = 0;
@@ -1023,24 +945,20 @@ export function buildMixedCourt(
             continue;
           }
 
-          const candidatePreferredScore = preferredCourtScore(split.teamA, split.teamB);
-          const candidateRepeatPenalties = repeatPenaltyCosts(split.teamA, split.teamB);
-          const repeatComparison = compareRepeatPenaltyCosts(candidateRepeatPenalties, bestRepeatPenalties);
-          const lineupTieBreakScore = seededAllocationTieBreak(four, 'MIXED_DOUBLES');
+          const candidatePreferredPairCount = preferredPairCount(split.teamA, split.teamB);
+          const candidateRepeatPenaltyCost = courtPairingPriorityCost(split.teamA, split.teamB);
           if (
-            repeatComparison < 0 ||
-            (repeatComparison === 0 && candidatePreferredScore > bestPreferredScore) ||
-            (repeatComparison === 0 && candidatePreferredScore === bestPreferredScore && split.cost < bestCost) ||
-            (repeatComparison === 0 && candidatePreferredScore === bestPreferredScore && split.cost === bestCost && split.repeatCount < bestRepeatCount) ||
-            (repeatComparison === 0 && candidatePreferredScore === bestPreferredScore && split.cost === bestCost && split.repeatCount === bestRepeatCount && lineupTieBreakScore > bestLineupTieBreakScore)
+            candidateRepeatPenaltyCost < bestRepeatPenaltyCost ||
+            (candidateRepeatPenaltyCost === bestRepeatPenaltyCost && candidatePreferredPairCount > bestPreferredPairCount) ||
+            (candidateRepeatPenaltyCost === bestRepeatPenaltyCost && candidatePreferredPairCount === bestPreferredPairCount && split.cost < bestCost) ||
+            (candidateRepeatPenaltyCost === bestRepeatPenaltyCost && candidatePreferredPairCount === bestPreferredPairCount && split.cost === bestCost && split.repeatCount < bestRepeatCount)
           ) {
             bestRepeatCount =
               split.repeatCount;
             bestCost =
               split.cost;
-            bestRepeatPenalties = candidateRepeatPenalties;
-            bestPreferredScore = candidatePreferredScore;
-            bestLineupTieBreakScore = lineupTieBreakScore;
+            bestRepeatPenaltyCost = candidateRepeatPenaltyCost;
+            bestPreferredPairCount = candidatePreferredPairCount;
 
             bestPlayers = four;
             bestTeamA =
