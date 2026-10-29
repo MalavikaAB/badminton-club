@@ -719,6 +719,44 @@ async function loadStatistics() {
         </div>
       </section>`;
 
+    const playerById = new Map(players.map(player => [player.id, player]));
+    const preferencePlayers = players.filter(player => Array.isArray(player.preferredPartnerIds) && player.preferredPartnerIds.length);
+    const preferenceRows = preferencePlayers.map(player => {
+      const rate = player.preferenceFulfillmentRate == null
+        ? '—'
+        : `${Math.round(Number(player.preferenceFulfillmentRate) * 100)}%`;
+      const recentRate = Number(player.recentEligibleOpportunities) > 0
+        ? `${Number(player.recentFulfilledOpportunities)}/${Number(player.recentEligibleOpportunities)}`
+        : '—';
+      const history = (Array.isArray(player.preferenceHistory) ? player.preferenceHistory : []).map(entry => {
+        const considered = (Array.isArray(entry.eligiblePartnerIds) ? entry.eligiblePartnerIds : [])
+          .map(id => escapeHtml(playerById.get(id)?.name || id)).join(', ') || 'none';
+        const selected = entry.fulfilledPartnerId
+          ? escapeHtml(playerById.get(entry.fulfilledPartnerId)?.name || entry.fulfilledPartnerId)
+          : 'none';
+        const reason = String(entry.reason || 'unknown').replaceAll('_', ' ').toLowerCase();
+        return `<li>Round ${Number(entry.roundNumber) || '—'} · ${escapeHtml(reason)} · Eligible partners: ${considered} · Selected: ${selected}</li>`;
+      }).join('');
+      return `<tr>
+        <th scope="row">${escapeHtml(player.name)}<small>Prefers: ${player.preferredPartnerIds.map(id => escapeHtml(playerById.get(id)?.name || id)).join(', ')}</small></th>
+        <td>${Number(player.fulfilledPreferenceOpportunities) || 0}/${Number(player.eligiblePreferenceOpportunities) || 0}</td>
+        <td>${rate}</td>
+        <td>${recentRate}</td>
+        <td><details><summary>Round log</summary><ul class="statistics-preference-log">${history || '<li>No generated rounds recorded yet.</li>'}</ul></details></td>
+      </tr>`;
+    }).join('');
+    const preferenceTable = preferencePlayers.length ? `
+      <section class="statistics-rounds-section" aria-labelledby="statistics-preferences-heading">
+        <h3 id="statistics-preferences-heading">Preferred partner fulfillment</h3>
+        <p class="statistics-legend">The target is about 75% of eligible opportunities. Recent rate uses the last eight eligible rounds; logged reasons show when a pairing was unavailable, skipped, or selected.</p>
+        <div class="statistics-table-scroll" role="region" aria-label="Preferred partner fulfillment by player" tabindex="0">
+          <table class="statistics-table statistics-preference-table">
+            <thead><tr><th scope="col">Player</th><th scope="col">Fulfilled / eligible</th><th scope="col">Overall</th><th scope="col">Recent 8</th><th scope="col">Decision log</th></tr></thead>
+            <tbody>${preferenceRows}</tbody>
+          </table>
+        </div>
+      </section>` : '';
+
             // Build the sit-out tally summary table
             const tallyRows = players.map(player => {
               const seq = player.sits.map(v => v === 1 ? '1' : v === 0 ? '0' : 'x').join('');
@@ -744,6 +782,7 @@ async function loadStatistics() {
 
     matrix.innerHTML = `${matrixTable}
       ${roundsTable}
+      ${preferenceTable}
       <p class="statistics-legend"><strong>Sit-out tally per player:</strong> 1 = played, 0 = sat out, x = not checked in yet or already checked out. Shows total sits, longest consecutive sit streak, and the round-by-round sequence.</p>
       ${tallyTable}`;
   } catch (loadError) {

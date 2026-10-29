@@ -8,11 +8,13 @@ import {
   bestSplit,
   buildCourt as buildCourt2,
   courtCostOf,
-  courtRepeatPenaltyCost,
+  addRepeatPenaltyCosts,
+  compareRepeatPenaltyCosts,
+  courtRepeatPenaltyCostsOf,
   courtRepeatCountOf,
-  isPreferredPartner,
+  preferredPairScore,
   localSearch,
-  repeatPenaltyCost,
+  repeatPenaltyCosts,
   replacePlayer,
   validForFormat,
 } from './pairing2.js';
@@ -403,28 +405,30 @@ export function balanceDivisionsAcrossCourts(
             const afterCost =
               splitI.cost +
               splitJ.cost;
-            const beforeRepeatPenaltyCost =
-              courtRepeatPenaltyCost(ci) +
-              courtRepeatPenaltyCost(cj);
-            const afterRepeatPenaltyCost =
-              repeatPenaltyCost(splitI.teamA, splitI.teamB) +
-              repeatPenaltyCost(splitJ.teamA, splitJ.teamB);
+            const beforeRepeatPenalties = addRepeatPenaltyCosts(
+              courtRepeatPenaltyCostsOf(ci),
+              courtRepeatPenaltyCostsOf(cj),
+            );
+            const afterRepeatPenalties = addRepeatPenaltyCosts(
+              repeatPenaltyCosts(splitI.teamA, splitI.teamB),
+              repeatPenaltyCosts(splitJ.teamA, splitJ.teamB),
+            );
             const beforeRepeatCount =
               courtRepeatCountOf(ci) +
               courtRepeatCountOf(cj);
             const afterRepeatCount =
               splitI.repeatCount +
               splitJ.repeatCount;
-            const beforePreferredPairCount =
-              preferredPairCount(ci.teamA, ci.teamB) +
-              preferredPairCount(cj.teamA, cj.teamB);
-            const afterPreferredPairCount =
-              preferredPairCount(splitI.teamA, splitI.teamB) +
-              preferredPairCount(splitJ.teamA, splitJ.teamB);
+            const beforePreferredScore =
+              preferredPairScore(ci.teamA[0], ci.teamA[1]) + preferredPairScore(ci.teamB[0], ci.teamB[1]) +
+              preferredPairScore(cj.teamA[0], cj.teamA[1]) + preferredPairScore(cj.teamB[0], cj.teamB[1]);
+            const afterPreferredScore =
+              preferredPairScore(splitI.teamA[0], splitI.teamA[1]) + preferredPairScore(splitI.teamB[0], splitI.teamB[1]) +
+              preferredPairScore(splitJ.teamA[0], splitJ.teamA[1]) + preferredPairScore(splitJ.teamB[0], splitJ.teamB[1]);
 
             if (
-              afterRepeatPenaltyCost > beforeRepeatPenaltyCost ||
-              afterPreferredPairCount < beforePreferredPairCount ||
+              compareRepeatPenaltyCosts(afterRepeatPenalties, beforeRepeatPenalties) > 0 ||
+              afterPreferredScore < beforePreferredScore ||
               afterRepeatCount > beforeRepeatCount ||
               (afterRepeatCount === beforeRepeatCount && afterCost > beforeCost)
             ) {
@@ -466,11 +470,6 @@ export function balanceDivisionsAcrossCourts(
       break;
     }
   }
-}
-
-function preferredPairCount(teamA: Player[], teamB: Player[]): number {
-  return Number(isPreferredPartner(teamA[0], teamA[1])) +
-    Number(isPreferredPartner(teamB[0], teamB[1]));
 }
 
 /**

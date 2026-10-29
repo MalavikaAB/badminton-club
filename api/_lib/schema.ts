@@ -92,6 +92,18 @@ create table if not exists venue_round_players (
   primary key (round_id, player_id)
 );
 alter table venue_round_players add column if not exists team text;
+create table if not exists venue_round_preference_stats (
+  round_id uuid not null references venue_rounds(id) on delete cascade,
+  player_id uuid not null references players(id) on delete cascade,
+  eligible boolean not null default false,
+  fulfilled boolean not null default false,
+  eligible_partner_ids text[] not null default '{}',
+  fulfilled_partner_id uuid references players(id) on delete set null,
+  skip_reason text not null,
+  primary key (round_id, player_id)
+);
+create index if not exists venue_round_preference_stats_player_idx
+  on venue_round_preference_stats (player_id, round_id);
 create table if not exists venue_pair_counts (
   night_id uuid not null references venue_nights(id) on delete cascade,
   player_id uuid not null references players(id) on delete cascade,

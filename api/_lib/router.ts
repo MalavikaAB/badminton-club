@@ -5,7 +5,7 @@ import { db } from './db.js';
 import { ensureSchema } from './schema.js';
 import { comparePriority, generateRound } from './scheduler.js';
 import { EPOCH, type CourtAssignment, type GameFormat, type Gender, type Player, type RoundAllocation } from './types.js';
-import { buildCourt as buildCourtForFormat, splitLegalForFormat, splitPartialOpenCourt } from './pairing2.js';
+import { buildCourt as buildCourtForFormat, splitLegalForFormat, splitPartialOpenCourt, partneredLastRound, pairWith } from './pairing2.js';
 import { endNight, ensureOpenNight, openNightId, resetStaleNight, sessions, createSession, updateSession, setSessionActive } from './repo.js';
 import {
   loadCheckedInPlayers,
@@ -515,9 +515,11 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
     return;
   }
 
-  const [roundRows, playerRows, relationshipRows, roundParticipationRows, checkInRows] = await Promise.all([
+  const [roundRows, playerRows, relationshipRows, roundParticipationRows, checkInRows, preferenceRows] = await Promise.all([
     sql`select count(*)::int as rounds_played from venue_rounds where night_id = ${nightId} and valid = true`,
-    sql`select p.id, p.name, p.gender, p.division, count(rp.player_id)::int as games_played
+    sql`select p.id, p.name, p.gender, p.division,
+        coalesce(p.partner_preferences, '{}') as preferred_partner_ids,
+        count(rp.player_id)::int as games_played
       from players p
       left join venue_round_players rp
         on rp.player_id = p.id
@@ -556,6 +558,13 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
       where n.session_id = ${sessionId} and n.status = 'OPEN' and r.valid = true
       order by r.round_number, rp.court_number, rp.team, p.name`,
     sql`select player_id, checked_in_at, checked_out_at from venue_check_ins where session_id = ${sessionId}`,
+    sql`select r.round_number, preference.player_id, preference.eligible,
+        preference.fulfilled, preference.eligible_partner_ids,
+        preference.fulfilled_partner_id, preference.skip_reason
+      from venue_round_preference_stats preference
+      join venue_rounds r on r.id = preference.round_id
+      where r.night_id = ${nightId} and r.valid = true
+      order by r.round_number, preference.player_id`,
   ]);
 
   const partnersByPlayer = new Map<string, Record<string, number>>();
@@ -626,12 +635,39 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
     }
   }
 
+  const preferenceHistoryByPlayer = new Map<string, Array<{
+    roundNumber: number;
+    eligible: boolean;
+    fulfilled: boolean;
+    eligiblePartnerIds: string[];
+    fulfilledPartnerId: string | null;
+    reason: string;
+  }>>();
+  for (const row of preferenceRows as any[]) {
+    const playerId = String(row.player_id);
+    const history = preferenceHistoryByPlayer.get(playerId) ?? [];
+    history.push({
+      roundNumber: Number(row.round_number),
+      eligible: row.eligible === true,
+      fulfilled: row.fulfilled === true,
+      eligiblePartnerIds: (row.eligible_partner_ids ?? []).map((id: unknown) => String(id)),
+      fulfilledPartnerId: row.fulfilled_partner_id ? String(row.fulfilled_partner_id) : null,
+      reason: String(row.skip_reason ?? ''),
+    });
+    preferenceHistoryByPlayer.set(playerId, history);
+  }
+
   // Compute per-player sit-out stats
   const playersWithStats = (playerRows as any[]).map((row) => {
     const playerId = String(row.id);
     const playedRounds = playerPlayedRounds.get(playerId) ?? new Set<number>();
     const gamesPlayed = Number(row.games_played) || 0;
     const roundsPlayed = Number((roundRows as any[])[0]?.rounds_played ?? 0);
+    const preferenceHistory = preferenceHistoryByPlayer.get(playerId) ?? [];
+    const eligiblePreferenceHistory = preferenceHistory.filter((entry) => entry.eligible);
+    const recentPreferenceHistory = eligiblePreferenceHistory.slice(-8);
+    const eligiblePreferenceOpportunities = eligiblePreferenceHistory.length;
+    const fulfilledPreferenceOpportunities = eligiblePreferenceHistory.filter((entry) => entry.fulfilled).length;
     // Build 1/0/x tally per round: 1 = played, 0 = sat out, null = unavailable
     const sits: (number | null)[] = [];
     let maxConsecutiveSits = 0;
@@ -671,6 +707,15 @@ async function handleSessionStatistics(res: VercelResponse, sessionId: string): 
       gender: row.gender,
       division: row.division,
       gamesPlayed,
+      preferredPartnerIds: (row.preferred_partner_ids ?? []).map((id: unknown) => String(id)),
+      eligiblePreferenceOpportunities,
+      fulfilledPreferenceOpportunities,
+      preferenceFulfillmentRate: eligiblePreferenceOpportunities > 0
+        ? fulfilledPreferenceOpportunities / eligiblePreferenceOpportunities
+        : null,
+      recentEligibleOpportunities: recentPreferenceHistory.length,
+      recentFulfilledOpportunities: recentPreferenceHistory.filter((entry) => entry.fulfilled).length,
+      preferenceHistory,
       partners: partnersByPlayer.get(playerId) ?? {},
       opponents: opponentsByPlayer.get(playerId) ?? {},
       totalSits,
@@ -940,6 +985,14 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
     returning created_at`;
   const roundCreatedAt = (insertedRounds as { created_at: Date }[])[0]?.created_at;
   if (!roundCreatedAt) throw new Error('Generated round was not saved');
+  const preferenceStats = buildPreferenceRoundStats(
+    players,
+    allocation,
+    separate,
+    strictSeparateDivisions,
+    Object.prototype.hasOwnProperty.call(body ?? {}, 'manualCourts'),
+    roundId,
+  );
   const rows = allocation.courts.flatMap((court) => {
     const teamA = new Set(court.teamA.map((p) => p.id));
     return court.players.map((p) => ({
@@ -952,6 +1005,11 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   });
   if (rows.length > 0) {
     await sql`insert into venue_round_players ${sql(rows, 'round_id', 'court_number', 'format', 'team', 'player_id')}`;
+  }
+  if (preferenceStats.length > 0) {
+    await sql`insert into venue_round_preference_stats ${sql(preferenceStats,
+      'round_id', 'player_id', 'eligible', 'fulfilled', 'eligible_partner_ids',
+      'fulfilled_partner_id', 'skip_reason')}`;
   }
   const assignedIds = allocation.courts.flatMap((c) => c.players.map((p) => p.id));
   const waitingIds = allocation.waiting.map((p) => p.id);
@@ -983,6 +1041,97 @@ async function handleGenerateRound(req: VercelRequest, res: VercelResponse): Pro
   ]);
   refreshGeneratedAllocation(allocation);
   sendJson(res, 200, serializeAllocation(allocation));
+}
+
+function buildPreferenceRoundStats(
+  players: Player[],
+  allocation: RoundAllocation,
+  separateDivisions: boolean,
+  strictSeparateDivisions: boolean,
+  manualAssignment: boolean,
+  roundId: string,
+): Array<{
+  round_id: string;
+  player_id: string;
+  eligible: boolean;
+  fulfilled: boolean;
+  eligible_partner_ids: string[];
+  fulfilled_partner_id: string | null;
+  skip_reason: string;
+}> {
+  const assigned = allocation.courts.flatMap((court) => court.players);
+  const assignedIds = new Set(assigned.map((player) => player.id));
+  const hasCrossDivisionCourt = allocation.courts.some((court) =>
+    new Set(court.players.map((player) => player.division)).size > 1,
+  );
+  const eligiblePair = (player: Player, partner: Player): boolean => {
+    if (!assignedIds.has(player.id) || !assignedIds.has(partner.id)) return false;
+    if (player.division !== partner.division
+      && (strictSeparateDivisions || (separateDivisions && !hasCrossDivisionCourt))) return false;
+    for (const court of allocation.courts) {
+      const fillers = assigned.filter((candidate) => candidate.id !== player.id && candidate.id !== partner.id);
+      for (let i = 0; i < fillers.length; i++) {
+        for (let j = i + 1; j < fillers.length; j++) {
+          const teamB = [fillers[i], fillers[j]];
+          if (!splitLegalForFormat(court.format, [player, partner], teamB)) continue;
+          const group = [player, partner, ...teamB];
+          if (strictSeparateDivisions && new Set(group.map((candidate) => candidate.division)).size > 1) continue;
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  return players.map((player) => {
+    const preferredIds = [...new Set(player.preferredPartnerIds ?? [])];
+    const teammates = allocation.courts
+      .flatMap((court) => [court.teamA, court.teamB])
+      .find((team) => team.some((member) => member.id === player.id)) ?? [];
+    const fulfilledPartner = teammates.find((member) => preferredIds.includes(member.id));
+    let eligiblePartnerIds: string[] = [];
+    let skipReason = 'NO_PREFERENCE';
+
+    if (preferredIds.length > 0) {
+      if (manualAssignment) {
+        skipReason = 'MANUAL_ASSIGNMENT';
+      } else if (!assignedIds.has(player.id)) {
+        skipReason = 'PLAYER_SITTING_OUT';
+      } else {
+        const playingPreferences = players.filter((candidate) =>
+          preferredIds.includes(candidate.id) && assignedIds.has(candidate.id),
+        );
+        if (playingPreferences.length === 0) {
+          skipReason = 'PREFERRED_PARTNERS_NOT_PLAYING';
+        } else {
+          eligiblePartnerIds = playingPreferences
+            .filter((candidate) => eligiblePair(player, candidate))
+            .map((candidate) => candidate.id);
+          if (eligiblePartnerIds.length === 0) {
+            skipReason = 'NO_LEGAL_FORMAT_OR_DIVISION';
+          } else if (fulfilledPartner && eligiblePartnerIds.includes(fulfilledPartner.id)) {
+            skipReason = 'FULFILLED';
+          } else if (eligiblePartnerIds.every((id) => pairWith(player, players.find((candidate) => candidate.id === id)!) > 0
+            || partneredLastRound(player, players.find((candidate) => candidate.id === id)!))) {
+            skipReason = 'REPEAT_AVOIDANCE';
+          } else {
+            skipReason = 'ALLOCATION_QUALITY';
+          }
+        }
+      }
+    }
+
+    const eligible = !manualAssignment && eligiblePartnerIds.length > 0;
+    return {
+      round_id: roundId,
+      player_id: player.id,
+      eligible,
+      fulfilled: eligible && Boolean(fulfilledPartner && eligiblePartnerIds.includes(fulfilledPartner.id)),
+      eligible_partner_ids: eligiblePartnerIds,
+      fulfilled_partner_id: fulfilledPartner?.id ?? null,
+      skip_reason: skipReason,
+    };
+  });
 }
 
 function refreshGeneratedAllocation(allocation: RoundAllocation): void {
